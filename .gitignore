@@ -1,0 +1,7 @@
+# keep team data out of this repo
+data/
+*.json
+!package.json
+*.bak.html
+.DS_Store
+node_modules/
