@@ -1,0 +1,244 @@
+{
+ "categories": [
+  {
+   "color": 0,
+   "group": "AI",
+   "id": "ai-video",
+   "name": "AI Video"
+  },
+  {
+   "color": 1,
+   "group": "AI",
+   "id": "ai-image",
+   "name": "AI Image & Photo"
+  },
+  {
+   "color": 2,
+   "group": "AI",
+   "id": "ai-3d",
+   "name": "AI 3D & Spaces"
+  },
+  {
+   "color": 3,
+   "group": "AI",
+   "id": "ai-vfx",
+   "name": "AI VFX & Compositing"
+  },
+  {
+   "color": 4,
+   "group": "AI",
+   "id": "ai-tools",
+   "name": "AI Assistants & Tools"
+  },
+  {
+   "color": 5,
+   "group": "VFX",
+   "id": "vfx-breakdowns",
+   "name": "VFX Breakdowns"
+  },
+  {
+   "color": 6,
+   "group": "VFX",
+   "id": "mocap",
+   "name": "Mocap & Digital Humans"
+  },
+  {
+   "color": 7,
+   "group": "VFX",
+   "id": "realtime",
+   "name": "Real-time & Virtual Production"
+  },
+  {
+   "color": 8,
+   "group": "3D",
+   "id": "fx-sim",
+   "name": "Simulation & FX"
+  },
+  {
+   "color": 9,
+   "group": "3D",
+   "id": "3d",
+   "name": "3D, Blender & Assets"
+  },
+  {
+   "color": 10,
+   "group": "VFX",
+   "id": "comp",
+   "name": "Compositing & Editing"
+  },
+  {
+   "color": 11,
+   "group": "VFX",
+   "id": "camera",
+   "name": "Camera, Light & Grade"
+  },
+  {
+   "color": 12,
+   "group": "3D",
+   "id": "motion",
+   "name": "Motion Design & Animation"
+  },
+  {
+   "color": 18,
+   "group": "Tech",
+   "id": "tech-ai",
+   "name": "AI Industry & Chips"
+  },
+  {
+   "color": 19,
+   "group": "Tech",
+   "id": "tech-xr",
+   "name": "Displays, Holograms & XR"
+  },
+  {
+   "color": 20,
+   "group": "Tech",
+   "id": "tech-interactive",
+   "name": "Projection & Interactive"
+  },
+  {
+   "color": 21,
+   "group": "Tech",
+   "id": "tech-robotics",
+   "name": "Robotics & Gadgets"
+  },
+  {
+   "color": 22,
+   "group": "Tech",
+   "id": "tech-capture",
+   "name": "Spatial Capture & Real-time"
+  },
+  {
+   "color": 13,
+   "group": "General",
+   "id": "ideas",
+   "name": "Ideas"
+  },
+  {
+   "color": 14,
+   "group": "General",
+   "id": "learning",
+   "name": "Learning"
+  },
+  {
+   "color": 15,
+   "group": "General",
+   "id": "projects",
+   "name": "Projects"
+  },
+  {
+   "color": 16,
+   "group": "General",
+   "id": "people",
+   "name": "People"
+  },
+  {
+   "color": 17,
+   "group": "General",
+   "id": "books",
+   "name": "Books"
+  },
+  {
+   "color": 23,
+   "group": "Projects",
+   "id": "proj-active",
+   "name": "In Progress"
+  },
+  {
+   "color": 24,
+   "group": "Projects",
+   "id": "proj-next",
+   "name": "Not Started"
+  },
+  {
+   "color": 25,
+   "group": "Projects",
+   "id": "proj-hold",
+   "name": "On Hold"
+  },
+  {
+   "color": 32,
+   "group": "Projects",
+   "id": "proj-team",
+   "name": "Team"
+  },
+  {
+   "color": 27,
+   "group": "Projects",
+   "id": "proj-process",
+   "name": "Ways of Working"
+  },
+  {
+   "color": 28,
+   "group": "Horizon",
+   "id": "hz-content",
+   "name": "Content Innovation"
+  },
+  {
+   "color": 29,
+   "group": "Horizon",
+   "id": "hz-channel",
+   "name": "Channel Strategy"
+  },
+  {
+   "color": 30,
+   "group": "Horizon",
+   "id": "audience",
+   "name": "Audience Insights"
+  },
+  {
+   "color": 33,
+   "group": "Horizon",
+   "id": "hz-org",
+   "name": "Organisational Excellence"
+  },
+  {
+   "color": 31,
+   "group": "Calendar",
+   "id": "cal-events",
+   "name": "Company Events"
+  },
+  {
+   "color": 26,
+   "group": "Projects",
+   "id": "cmvs6ihmd",
+   "name": "Done & Archived"
+  },
+  {
+   "id": "claude-games",
+   "name": "Games & prototypes",
+   "color": 22,
+   "group": "Claude"
+  },
+  {
+   "id": "claude-docs",
+   "name": "Game design & pitches",
+   "color": 25,
+   "group": "Claude"
+  },
+  {
+   "id": "claude-stories",
+   "name": "Stories & scripts",
+   "color": 28,
+   "group": "Claude"
+  },
+  {
+   "id": "claude-tools",
+   "name": "Apps & tools",
+   "color": 31,
+   "group": "Claude"
+  },
+  {
+   "id": "claude-research",
+   "name": "Research & reports",
+   "color": 19,
+   "group": "Claude"
+  },
+  {
+   "id": "claude-design",
+   "name": "Design & mockups",
+   "color": 13,
+   "group": "Claude"
+  }
+ ]
+}

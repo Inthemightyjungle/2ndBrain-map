@@ -5,3 +5,5 @@ data/
 *.bak.html
 .DS_Store
 node_modules/
+# the demo's made-up sample data is fine to keep
+!demo/*.json

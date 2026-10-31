@@ -4,6 +4,18 @@ An interactive 2D / 3D neural map of the team's inspiration posts, projects, hor
 It runs as a single self-contained HTML page (a Claude artifact) and reads its notes from the artifact's
 database at runtime, so **this repo holds code only — no notes, posts, people or client data**.
 
+## Demo
+
+`docs/index.html` is a public demo: the same map filled with **made-up sample data** (`demo/make_data.py`),
+with an in-page stand-in for the Claude runtime so it works anywhere. Nothing you change in the demo is saved.
+It is served by GitHub Pages from the `docs/` folder on `main`.
+
+Rebuild it after changing the map:
+
+```bash
+bash tools/splice.sh && python3 demo/make_data.py && python3 demo/build_page.py
+```
+
 ## Layout
 
 | Path | What it is |
@@ -14,7 +26,9 @@ database at runtime, so **this repo holds code only — no notes, posts, people 
 | `src/shell3.html` | Page markup |
 | `tools/splice.sh` | Splices the engine into the app, syntax-checks, and builds |
 | `tools/build.py` | Inlines CSS + JS into `dist/inspirations-map.html` |
-| `dist/inspirations-map.html` | The built page |
+| `dist/inspirations-map.html` | The built page (needs the Claude runtime for data) |
+| `demo/` | Sample-data generator and demo page builder |
+| `docs/` | The built demo, served by GitHub Pages |
 
 ## Build
 
