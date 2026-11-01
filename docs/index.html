@@ -1690,7 +1690,10 @@ function fitCamera(instant, only, kMax) {
   let padTop = G.W < 760 ? 120 : 140;
   if (G.relate && !G.pulled && G.byId.has("lens")) { const dk = $("#deck"), wr = G.wrap.getBoundingClientRect(); if (dk && !dk.hidden && dk.offsetParent) { const b = dk.getBoundingClientRect(); if (b.height > 60) padTop = Math.max(padTop, b.bottom - wr.top + 56); } }
   const padBot = 64 + (TL.show ? (G.W < 760 ? 100 : 84) : 0);
-  const D3 = G.dim === 3, whole = !only && D3;   // the whole map in 3D: the map's middle (Capability Development, or the centre of pillars / grid) in the middle of the screen
+  // search overview: keep the map clear of the search's preview card on the right
+  let padR = 0;
+  if (!only && G.relate && G.selected === "lens" && G.W >= 760) { const pv = $("#preview"); if (pv && !pv.hidden) padR = Math.min(G.W * 0.4, (pv.offsetWidth || 340) + 40); }
+  const D3 = G.dim === 3, whole = !only && D3 && !padR;   // the whole map in 3D: the map's middle (Capability Development, or the centre of pillars / grid) in the middle of the screen
   let k = 1, box = null;
   for (let it = 0; it < (D3 ? 4 : 1); it++) {
     G.cam.k = k; G.cam.tx = 0; G.cam.ty = 0;
@@ -1698,12 +1701,12 @@ function fitCamera(instant, only, kMax) {
     for (const n of pts) { const p = projT(n.x, n.y, n.z); const px = p.x - G.W / 2, py = p.y - G.H / 2; const r = (n.r || 3) * p.s; x0 = Math.min(x0, px - r - padX); x1 = Math.max(x1, px + r + padX); y0 = Math.min(y0, py - r - 40); y1 = Math.max(y1, py + r + 30); }
     if (whole) { const hx = Math.max(-x0, x1), hy = Math.max(-y0, y1); x0 = -hx; x1 = hx; y0 = -hy; y1 = hy; }
     box = { x0, x1, y0, y1 };
-    k = clamp(k * Math.min((G.W - 40) / (x1 - x0), (G.H - padTop - padBot) / (y1 - y0)), 0.04, kMax || 2.4);
+    k = clamp(k * Math.min((G.W - 40 - padR) / (x1 - x0), (G.H - padTop - padBot) / (y1 - y0)), 0.04, kMax || 2.4);
   }
   // with the camera at k, the box measured at the previous k scales by roughly k / kPrev
   const kPrev = G.cam.k, f = k / kPrev;
-  const to = whole ? { k, tx: 0, ty: (padTop - padBot) / 2, yaw: G.cam.yaw, pitch: G.cam.pitch, ...(GX.on ? {} : { roll: 0 }) }
-    : { k, tx: -f * (box.x0 + box.x1) / 2, ty: -f * (box.y0 + box.y1) / 2 + (padTop - padBot) / 2, yaw: G.cam.yaw, pitch: G.cam.pitch };
+  const to = whole ? { k, tx: -padR / 2, ty: (padTop - padBot) / 2, yaw: G.cam.yaw, pitch: G.cam.pitch, ...(GX.on ? {} : { roll: 0 }) }
+    : { k, tx: -f * (box.x0 + box.x1) / 2 - padR / 2, ty: -f * (box.y0 + box.y1) / 2 + (padTop - padBot) / 2, yaw: G.cam.yaw, pitch: G.cam.pitch };
   G.cam.k = k0; G.cam.tx = tx0; G.cam.ty = ty0;
   animateCam(to, instant ? 0 : 650);
 }
@@ -1810,7 +1813,8 @@ function render(t) {
   const all = G.nodes.concat(G.posts);
   for (const n of all) n._p = TR ? projT(n.x, n.y, n.z) : proj(n.x, n.y, n.z);
   // fold: nodes outside the selected depth collapse into the selected node (and expand back out)
-  const keep = sel && !pulled && G.netLevel < 3 && nodeData(sel) ? netSetCached(sel, G.netLevel) : null;
+  // (a search doesn't fold the map away: it overlooks everything, with its matches lit)
+  const keep = sel && sel !== "lens" && !pulled && G.netLevel < 3 && nodeData(sel) ? netSetCached(sel, G.netLevel) : null;
   if (keep) G.foldAt = sel;
   const anchor = G.foldAt && nodeData(G.foldAt);
   const dt = Math.min(64, Math.max(0, t - (G.lastT || t))); G.lastT = t;
@@ -1850,6 +1854,7 @@ function render(t) {
   const inGroup = pulled ? (inPulledGroup(pulled.root), pulled.set) : null;
   const near = keep;
   const fade = (n) => 1 - (n._c || 0);
+  const lensView = !!(lit && G.relate && G.relate.lens && !pulled && G.byId.has("lens"));
   const visible = (id) => {
     if (inGroup) return inGroup.has(id);
     if (near) return near.has(id);
@@ -2087,7 +2092,8 @@ function render(t) {
     let pop = 1;
     if (n._born) pop = 0.35 + 0.65 * (n._grow || 0);
     const r = pop * Math.max(isPost ? 1.6 : 3, dR(n) * p.s * (isPost && (n.free || hov) ? 1.6 : 1)) * (hov && !isPost ? 1.04 : 1);
-    const a0 = (vis ? 1 : bgLayer ? 0.5 : near && !inGroup ? (isPost ? 0.03 : 0.06) : 0.15) * da * fade(n);
+    // during a search the rest of the map stays faintly visible underneath, so the search overlooks everything
+    const a0 = (vis ? 1 : bgLayer ? 0.5 : near && !inGroup ? (isPost ? 0.03 : 0.06) : lensView ? (isPost ? 0.18 : 0.32) : 0.15) * da * fade(n);
     ctx.globalAlpha = a0;
     if (isPost) {
       const tileW = Math.min(64, n.free ? clamp(27 * p.s, 5, 96) : r * 3.2);
@@ -4863,6 +4869,8 @@ function placePreview() {
   const rr = (gn._hr || gn.r * p.s);
   let x = p.x + rr + 22, y = p.y - 60;
   if (x + bw > G.W - 60) x = p.x - rr - 22 - bw;
+  // the search's card docks on the right so the overview of the map stays clear
+  if (gn.kind === "lens" && !G.pulled) { x = G.W - bw - 16; y = 140; }
   x = clamp(x, 12, G.W - bw - 12); y = clamp(y, 140, Math.max(140, G.H - bh - 12));
   box.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
 }
@@ -4968,6 +4976,8 @@ async function commitRelate(q) {
   renderGraph();
   showPreview("lens");
   syncQChip();
+  // pull back to an overview: the search node above, overlooking the whole map and its links down to the matches
+  if (st.view === "graph" && !G.pulled) { G.fitAfter = performance.now() + (reduceMotion ? 0 : 250); kick(); }
   if (!st.ai) return;
   const done = busy(`Finding everything related to "${short(q, 40)}"`);
   try {
