@@ -4085,6 +4085,7 @@ async function commitRelate(q) {
   if (!rel) { toast("Type a goal or topic, like \"AI video with Higgsfield\" or \"robotics\""); return; }
   renderGraph();
   showPreview("lens");
+  syncQChip();
   if (!st.ai) return;
   const done = busy(`Finding everything related to "${short(q, 40)}"`);
   try {
@@ -4111,7 +4112,15 @@ function clearRelate() {
   G.relate = null;
   st.query = ""; const q = $("#q"); if (q) q.value = "";
   if (G.selected === "lens") hidePreview();
-  renderGraph(); applyHighlight();
+  renderGraph(); applyHighlight(); syncQChip();
+}
+// after Enter, the search text turns into a chip: clicking it clears the search
+function syncQChip() {
+  const q = $("#q"); if (!q) return;
+  const on = !!(G.relate && G.relate.lens && q.value.trim() && q.value.trim() === G.relate.q);
+  q.classList.toggle("committed", on);
+  q.title = on ? "Click to clear this search" : "";
+  const hint = $("#q-hint"); if (on && hint) { hint.textContent = "click to clear ×"; hint.title = ""; }
 }
 
 /* ---------- status + controls ---------- */
@@ -4301,6 +4310,7 @@ function applyHighlight() {
   if (q && rel) { const nt = rel.notes.size, np = rel.posts.size; hint.textContent = nt || np ? `${nt} · ${np} ↵` : "none"; hint.title = `${nt} topics and ${np} posts match. Press Enter to relate.`; }
   else if (q) hint.textContent = "no matches";
   else hint.textContent = "/ to search";
+  syncQChip();
   kick();
 }
 function pulse(id) { if (!reduceMotion) { G.pulses.push({ id, t0: performance.now() }); kick(); } }
@@ -5274,6 +5284,13 @@ $("#q").addEventListener("input", (e) => {
   // highlight after a short pause in typing instead of on every keystroke
   clearTimeout(hlTimer); hlTimer = setTimeout(applyHighlight, st.query ? 70 : 0);
   clearTimeout(qTimer); qTimer = setTimeout(renderLibrary, 120);
+});
+// clicking a committed search (after Enter) clears it and leaves the box ready for a new search
+$("#q").addEventListener("pointerdown", (e) => {
+  const q = e.currentTarget;
+  if (!q.classList.contains("committed") || e.button > 0) return;
+  e.preventDefault();
+  clearTimeout(hlTimer); clearRelate(); renderLibrary(); q.focus();
 });
 $("#q").addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
