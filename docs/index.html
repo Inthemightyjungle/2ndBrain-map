@@ -660,6 +660,7 @@ textarea{resize:vertical;min-height:120px;line-height:1.5}
 .src .tags { margin: 4px 0 0; }
 .tag-sum { margin: 4px 0 8px; }
 .tag-sum .meta { margin: 0 0 4px; }
+@media (max-width:1680px){ #b-recal .t{display:none} #b-recal{padding:0 11px} }
 </style>
 
 <div class="app" id="app">
@@ -689,6 +690,7 @@ textarea{resize:vertical;min-height:120px;line-height:1.5}
       <button class="btn primary" id="b-capture" title="Capture a thought (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="t">Capture</span></button>
       <button class="btn" id="b-ask" data-ai title="Ask the brain (A)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg><span class="t">Ask</span></button>
       <button class="btn" id="b-rewire" data-ai title="Let AI find connections across the notes shown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="6" r="2.2"/><circle cx="19" cy="7" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M7 7l10 0M6.2 8l4.8 8M17.9 9l-4.8 7.2"/></svg><span class="t">Find links</span></button>
+      <button class="btn" id="b-recal" title="Recalibrate the map: tidy the layout and move topics that sit under the wrong branch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/><circle cx="12" cy="12" r="2.2"/></svg><span class="t">Recalibrate</span></button>
       <button class="btn" id="b-import" title="Import notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg><span class="t">Import</span></button>
     </div>
   </header>
@@ -775,8 +777,8 @@ textarea{resize:vertical;min-height:120px;line-height:1.5}
       <div class="panel" id="p-capture" hidden>
         <div class="field">
           <label class="label-sm" for="cap-text">New thought</label>
-          <textarea id="cap-text" placeholder="What's on your mind?&#10;The first line becomes the title."></textarea>
-          <p class="helper">Link to another note by typing its title in brackets, like <code>[[Weekly review]]</code>.</p>
+          <textarea id="cap-text" placeholder="What's on your mind, or paste a link.&#10;The first line becomes the title."></textarea>
+          <p class="helper">Paste a link (add a few words about it if you like) and Claude works out what it's for and files it under the right topic. Link to another note by typing its title in brackets, like <code>[[Weekly review]]</code>.</p>
         </div>
         <div class="field">
           <span class="label-sm">Category</span>
@@ -5094,6 +5096,47 @@ function setLayout(l) {
   G.fitAfter = performance.now() + (reduceMotion ? 0 : 1500);
   kick();
 }
+// recalibrate: clear manual pins, straighten the tree, re-grow the map from the middle out and settle it fresh,
+// then frame it. soft = data just changed: only re-settle from where things are.
+function recalibrateLayout(soft) {
+  if (!G.nodes.length) return;
+  releasePull(true);
+  if (!soft) {
+    const key = pinKey(), had = store.get(key, {}) || {};
+    if (Object.keys(had).length) { store.set(key, {}); histPush({ label: "Clear pins (recalibrate)", undo: () => { store.set(key, had); applyPins(); kick(); }, redo: () => { store.set(key, {}); applyPins(); kick(); } }); }
+    for (const n of G.nodes) delete n.userPin;
+    if (G.treeM) resetTree(); else if (G.cam.roll) animateCam({ roll: 0 }, 500);
+    const L = G.byId.get("lens"); if (L) L.userPlaced = false;
+    G.freePos = null;
+  }
+  if (G.arrange !== "free") { applyArrange(true); placeLens(); G.fitAfter = performance.now() + (reduceMotion ? 0 : 1000); kick(); return; }
+  const old = new Map(G.nodes.map((n) => [n, { x: n.x, y: n.y, z: n.z }]));
+  const D3 = G.dim === 3, rnd = () => (Math.random() - 0.5) * 60;
+  if (!soft) {
+    // re-grow: every node starts next to its parent (parents first), so branches untangle as they settle
+    const order = [...G.nodes].sort((a, b) => (a.depth || 0) - (b.depth || 0));
+    for (const n of order) {
+      if (n.kind === "core") { n.x = n.y = n.z = 0; continue; }
+      if (n.kind === "lens") continue;
+      const p = G.byId.get(n.tp) || G.byId.get("core");
+      n.x = (p ? p.x : 0) + rnd(); n.y = (p ? p.y : 0) + rnd(); n.z = D3 ? (p ? p.z : 0) + rnd() : 0;
+      n.vx = n.vy = n.vz = 0;
+    }
+  }
+  for (const n of G.nodes) if (n.kind !== "core" && n.kind !== "lens") n.pin = false;
+  settle(soft ? 160 : 520);
+  const now = performance.now();
+  for (const n of G.nodes) {
+    const to = { x: n.x, y: n.y, z: n.z }, from = old.get(n);
+    if (!from || reduceMotion) continue;
+    n.x = from.x; n.y = from.y; n.z = from.z; n.pin = true;
+    G.anims = G.anims.filter((q) => q.n !== n);
+    G.anims.push({ n, from, to, t0: now, dur: 1000, ease: easeInOut, done: () => { n.pin = n.kind === "core" || n.kind === "lens"; } });
+  }
+  placeLens();
+  G.fitAfter = now + (reduceMotion ? 0 : 1050);
+  kick();
+}
 function resizeGraph() {
   const r = G.wrap.getBoundingClientRect();
   G.W = Math.max(1, r.width); G.H = Math.max(1, r.height); G.dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -5565,6 +5608,7 @@ $("#b-capture").onclick = () => openDrawer("capture");
 $("#b-ask").onclick = () => (st.mode === "ask" ? closeDrawer() : openDrawer("ask"));
 $("#b-import").onclick = () => (st.mode === "import" ? closeDrawer() : openDrawer("import"));
 $("#b-rewire").onclick = rewire;
+$("#b-recal").onclick = recalibrate;
 
 function catOptions(sel, emptyLabel) {
   const v = sel.value;
@@ -5599,6 +5643,20 @@ function capture() {
   if (!st.writer) return;
   const raw = $("#cap-text").value.trim();
   if (!raw) { $("#cap-text").focus(); return; }
+  // a link: work out what it's for and file it as a post under the topic it belongs to
+  const urls = [...new Set(raw.match(/https?:\/\/[^\s<>"')\]]+/g) || [])].slice(0, 6);
+  if (urls.length && st.ai) {
+    const pick = ($("#cap-cats input:checked") || {}).value || "";
+    $("#cap-text").value = "";
+    fileLinks(urls, squash(urls.reduce((t, u) => t.split(u).join(" "), raw)), pick).catch((e) => {
+      const m = aiErr(e); toast(m || "Couldn't sort the link, so it was saved as a note", m ? "err" : undefined);
+      $("#cap-text").value = raw; plainCapture(raw);
+    });
+    return;
+  }
+  plainCapture(raw);
+}
+function plainCapture(raw) {
   const lines = raw.split("\n");
   let title = lines[0].replace(/^#+\s*/, "").trim();
   let body = lines.slice(1).join("\n").trim();
@@ -5615,6 +5673,126 @@ function capture() {
 $("#cap-save").onclick = capture;
 $("#cap-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); capture(); } });
 if (/Mac|iPhone|iPad/.test(navigator.platform || "")) $("#cap-kbd").textContent = "⌘ + Enter to save";
+
+// the tree, one line per topic, for the AI to choose from
+function treeLines(filter) {
+  const out = [];
+  for (const n of st.notes.values()) {
+    if (filter && !filter(n)) continue;
+    const p = n.parent ? st.notes.get(n.parent) : null;
+    out.push(`${n.id} | ${groupLabel(groupOf(catById(n.cat)))} › ${catName(n.cat)}${p ? " › " + squash(p.title) : ""} | ${squash(n.title)} | ${excerpt(n, 110)}`);
+  }
+  return out.slice(0, 450);
+}
+const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+async function fileLinks(urls, note, catPick) {
+  const done = busy(`Reading ${urls.length === 1 ? "the link" : urls.length + " links"} and finding where ${urls.length === 1 ? "it belongs" : "they belong"}`);
+  try {
+    const only = catById(catPick);
+    const prompt =
+`You sort saved links into a team's mind map of inspiration, research and projects. For each link, work out what it is and what it's for (from the address, its words and the person's note), then file it under the single best place in the tree.
+
+LINKS
+${urls.map((u, i) => `${i + 1}. ${u}`).join("\n")}
+${note ? `\nTHE PERSON'S NOTE ABOUT IT\n${short(note, 600)}\n` : ""}${only ? `\nThey asked for it to go in the category "${only.name}".\n` : ""}
+THE TREE (id | group › category › parent topic | topic title | summary)
+${treeLines(only ? (n) => n.cat === only.id : null).join("\n")}
+
+CATEGORIES
+${cats().filter((c) => !only || c.id === only.id).map((c) => `${c.name} (${groupLabel(groupOf(c))})`).join("; ")}
+
+Prefer adding the link as a post under an existing topic whose subject really matches. Only when nothing fits, make a new topic: give its category and, if it belongs under an existing topic, that topic's id as parent. Keep the description plain and specific (what the post or page shows), under 70 characters. Tags follow "Format · Source · tools · what it's about", for example "Tutorial · Creator · Blender, Houdini · procedural city scatter".
+
+Reply with only JSON: {"items":[{"url":"<link>","action":"post","topic":"<topic id>","desc":"<what it is>","tags":"<tags>","why":"<max 12 words>"} or {"url":"<link>","action":"topic","category":"<category name>","parent":"<topic id or null>","title":"<new topic title>","desc":"<what it is>","tags":"<tags>","why":"<max 12 words>"}]}`;
+    const res = await st.ai.json(prompt, { modelTier: "quick" });
+    const items = res && Array.isArray(res.items) ? res.items : [];
+    const day = todayIso();
+    const placed = [];
+    for (const u of urls) {
+      const it = items.find((x) => x && String(x.url || "").trim() === u) || items[urls.indexOf(u)] || {};
+      const desc = short(squash(it.desc || note || hostOf(u)), 90);
+      const tags = squash(it.tags || "");
+      const line = `- [${day}] ${desc}\n  ${u}${tags ? "\n  Tags: " + short(tags, 160) : ""}`;
+      let target = it.action === "post" ? st.notes.get(String(it.topic || "")) : null;
+      if (target && !canModify(target)) target = null;
+      if (target) {
+        if (!placed.length) histLabel(`File ${urls.length === 1 ? "link" : "links"} under "${short(target.title, 24)}"`);
+        putNote({ ...target, body: String(target.body || "").replace(/\s*$/, "") + "\n" + line });
+        placed.push({ id: target.id, where: `${catName(target.cat)} › ${short(target.title, 40)}` });
+        continue;
+      }
+      // a new topic, in the chosen category (and under a parent topic if one was given)
+      const c = only || cats().find((x) => x.name.toLowerCase() === String(it.category || "").toLowerCase()) || null;
+      let parent = it.parent ? st.notes.get(String(it.parent)) : null;
+      if (parent && c && parent.cat !== c.id) parent = null;
+      const title = short(squash(it.title || desc || hostOf(u)), 80);
+      const id = newId();
+      if (!placed.length) histLabel(`File link as "${short(title, 24)}"`);
+      putNote({ id, author: st.me, title, body: (parent ? `Part of [[${parent.title}]]\n\n` : "") + `## Saved posts (1)\n${line}`, cat: c ? c.id : "", links: [], created: Date.now(), date: Date.now() });
+      placed.push({ id, where: `${c ? c.name : "Unsorted"} › ${short(title, 40)}`, fresh: true });
+    }
+    if (!placed.length) throw new Error("nothing placed");
+    const last = placed[placed.length - 1];
+    toast(placed.length === 1 ? `Filed under ${last.where}${last.fresh ? " (new topic)" : ""}` : `Filed ${placed.length} links · last under ${last.where}`);
+    st.selected = last.id;
+    setTimeout(() => { applyHighlight(); if (st.view === "graph") { showPreview(last.id); panTo(last.id); } pulse(last.id); }, 250);
+    for (const p of placed) if (p.fresh) queueAutoLink(p.id);
+  } finally { done(); }
+}
+
+/* ---------- recalibrate: tidy the layout and re-sort topics that sit in the wrong place ---------- */
+async function recalibrate() {
+  if (st.recalBusy) return;
+  st.recalBusy = true;
+  try {
+    if (st.view !== "graph") setView("graph");
+    recalibrateLayout();
+    if (!st.ai || !st.writer) { toast("Recalibrated the layout"); return; }
+    const done = busy("Checking every topic is under the right branch");
+    let moved = 0;
+    try {
+      // projects, people and calendar entries have their own fixed places; everything else can be re-sorted
+      const fixed = new Set(["Projects", "Calendar"]);
+      const movable = (n) => canModify(n) && !fixed.has(groupOf(catById(n.cat)));
+      const lines = treeLines((n) => movable(n) || isHub(n));
+      if (lines.length < 3) { toast("Recalibrated the layout"); return; }
+      const sortable = cats().filter((c) => !fixed.has(groupOf(c)));
+      const prompt =
+`You keep a team's mind map tidy. Each line is a topic in the tree. Find topics that sit in the wrong place: in a category that doesn't match their subject, under a parent topic they don't belong to, or unsorted. Leave anything that is reasonably placed alone; only move clear mistakes.
+
+THE TREE (id | group › category › parent topic | topic title | summary)
+${lines.join("\n")}
+
+CATEGORIES YOU CAN MOVE TO
+${sortable.map((c) => `${c.name} (${groupLabel(groupOf(c))})`).join("; ")}
+
+For each topic to move, give the category it belongs in and, if it should sit under another topic in that category, that topic's id as parent (null for none). At most 25 moves; an empty list is fine.
+
+Reply with only JSON: {"moves":[{"id":"<topic id>","category":"<category name>","parent":"<topic id or null>","why":"<max 12 words>"}]}`;
+      const res = await st.ai.json(prompt, { modelTier: "quick" });
+      const moves = res && Array.isArray(res.moves) ? res.moves.slice(0, 25) : [];
+      histLabel("Recalibrate the map");
+      for (const mv of moves) {
+        const n = st.notes.get(String((mv && mv.id) || ""));
+        if (!n || !movable(n)) continue;
+        const c = sortable.find((x) => x.name.toLowerCase() === String(mv.category || "").toLowerCase());
+        if (!c) continue;
+        let parent = mv.parent ? st.notes.get(String(mv.parent)) : null;
+        // a parent must be in the same category, and not the topic itself or one of its own sub-topics
+        if (parent && (parent.cat !== c.id || parent.id === n.id || noteDesc(n.id).has(parent.id))) parent = null;
+        const curParent = n.parent || null;
+        if (c.id === n.cat && (parent ? parent.id : null) === curParent) continue;
+        const keepParent = !mv.parent && c.id === n.cat;   // same category, no parent given: leave the parent alone
+        const body = keepParent ? n.body : setPartOf(n.body, parent ? parent.title : null);
+        putNote({ ...n, cat: c.id, body });
+        moved++;
+      }
+    } finally { done(); }
+    toast(moved ? `Recalibrated · moved ${moved} topic${moved === 1 ? "" : "s"} to a better branch (Undo to put them back)` : "Recalibrated · every topic is already in the right place");
+    if (moved) setTimeout(() => recalibrateLayout(true), 400);
+  } catch (e) { const m = aiErr(e); if (m) toast(m, "err"); }
+  finally { st.recalBusy = false; }
+}
 
 /* ---------- note ---------- */
 function select(id) {

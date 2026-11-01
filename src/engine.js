@@ -3985,6 +3985,47 @@ function setLayout(l) {
   G.fitAfter = performance.now() + (reduceMotion ? 0 : 1500);
   kick();
 }
+// recalibrate: clear manual pins, straighten the tree, re-grow the map from the middle out and settle it fresh,
+// then frame it. soft = data just changed: only re-settle from where things are.
+function recalibrateLayout(soft) {
+  if (!G.nodes.length) return;
+  releasePull(true);
+  if (!soft) {
+    const key = pinKey(), had = store.get(key, {}) || {};
+    if (Object.keys(had).length) { store.set(key, {}); histPush({ label: "Clear pins (recalibrate)", undo: () => { store.set(key, had); applyPins(); kick(); }, redo: () => { store.set(key, {}); applyPins(); kick(); } }); }
+    for (const n of G.nodes) delete n.userPin;
+    if (G.treeM) resetTree(); else if (G.cam.roll) animateCam({ roll: 0 }, 500);
+    const L = G.byId.get("lens"); if (L) L.userPlaced = false;
+    G.freePos = null;
+  }
+  if (G.arrange !== "free") { applyArrange(true); placeLens(); G.fitAfter = performance.now() + (reduceMotion ? 0 : 1000); kick(); return; }
+  const old = new Map(G.nodes.map((n) => [n, { x: n.x, y: n.y, z: n.z }]));
+  const D3 = G.dim === 3, rnd = () => (Math.random() - 0.5) * 60;
+  if (!soft) {
+    // re-grow: every node starts next to its parent (parents first), so branches untangle as they settle
+    const order = [...G.nodes].sort((a, b) => (a.depth || 0) - (b.depth || 0));
+    for (const n of order) {
+      if (n.kind === "core") { n.x = n.y = n.z = 0; continue; }
+      if (n.kind === "lens") continue;
+      const p = G.byId.get(n.tp) || G.byId.get("core");
+      n.x = (p ? p.x : 0) + rnd(); n.y = (p ? p.y : 0) + rnd(); n.z = D3 ? (p ? p.z : 0) + rnd() : 0;
+      n.vx = n.vy = n.vz = 0;
+    }
+  }
+  for (const n of G.nodes) if (n.kind !== "core" && n.kind !== "lens") n.pin = false;
+  settle(soft ? 160 : 520);
+  const now = performance.now();
+  for (const n of G.nodes) {
+    const to = { x: n.x, y: n.y, z: n.z }, from = old.get(n);
+    if (!from || reduceMotion) continue;
+    n.x = from.x; n.y = from.y; n.z = from.z; n.pin = true;
+    G.anims = G.anims.filter((q) => q.n !== n);
+    G.anims.push({ n, from, to, t0: now, dur: 1000, ease: easeInOut, done: () => { n.pin = n.kind === "core" || n.kind === "lens"; } });
+  }
+  placeLens();
+  G.fitAfter = now + (reduceMotion ? 0 : 1050);
+  kick();
+}
 function resizeGraph() {
   const r = G.wrap.getBoundingClientRect();
   G.W = Math.max(1, r.width); G.H = Math.max(1, r.height); G.dpr = Math.min(2, window.devicePixelRatio || 1);

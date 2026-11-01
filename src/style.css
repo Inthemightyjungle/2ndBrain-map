@@ -641,3 +641,4 @@ textarea{resize:vertical;min-height:120px;line-height:1.5}
 .src .tags { margin: 4px 0 0; }
 .tag-sum { margin: 4px 0 8px; }
 .tag-sum .meta { margin: 0 0 4px; }
+@media (max-width:1680px){ #b-recal .t{display:none} #b-recal{padding:0 11px} }
