@@ -3887,13 +3887,12 @@ function clearRelate() {
   if (G.selected === "lens") hidePreview();
   renderGraph(); applyHighlight(); syncQChip();
 }
-// after Enter, the search text turns into a chip: clicking it clears the search
+// after Enter, the search text is tinted to show it's the active search; the × at the end of the text clears it
 function syncQChip() {
   const q = $("#q"); if (!q) return;
   const on = !!(G.relate && G.relate.lens && q.value.trim() && q.value.trim() === G.relate.q);
   q.classList.toggle("committed", on);
-  q.title = on ? "Click to clear this search" : "";
-  const hint = $("#q-hint"); if (on && hint) { hint.textContent = "click to clear ×"; hint.title = ""; }
+  if (typeof placeQX === "function") placeQX();
 }
 
 /* ---------- status + controls ---------- */

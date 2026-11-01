@@ -4114,13 +4114,12 @@ function clearRelate() {
   if (G.selected === "lens") hidePreview();
   renderGraph(); applyHighlight(); syncQChip();
 }
-// after Enter, the search text turns into a chip: clicking it clears the search
+// after Enter, the search text is tinted to show it's the active search; the × at the end of the text clears it
 function syncQChip() {
   const q = $("#q"); if (!q) return;
   const on = !!(G.relate && G.relate.lens && q.value.trim() && q.value.trim() === G.relate.q);
   q.classList.toggle("committed", on);
-  q.title = on ? "Click to clear this search" : "";
-  const hint = $("#q-hint"); if (on && hint) { hint.textContent = "click to clear ×"; hint.title = ""; }
+  if (typeof placeQX === "function") placeQX();
 }
 
 /* ---------- status + controls ---------- */
@@ -5285,13 +5284,34 @@ $("#q").addEventListener("input", (e) => {
   clearTimeout(hlTimer); hlTimer = setTimeout(applyHighlight, st.query ? 70 : 0);
   clearTimeout(qTimer); qTimer = setTimeout(renderLibrary, 120);
 });
-// clicking a committed search (after Enter) clears it and leaves the box ready for a new search
-$("#q").addEventListener("pointerdown", (e) => {
-  const q = e.currentTarget;
-  if (!q.classList.contains("committed") || e.button > 0) return;
-  e.preventDefault();
-  clearTimeout(hlTimer); clearRelate(); renderLibrary(); q.focus();
+// an × sits just after the end of the search text (on hover, or always on touch screens); clicking it clears
+// the search, while clicking the text itself just edits it
+const qX = document.createElement("button");
+qX.type = "button"; qX.className = "q-x"; qX.textContent = "×"; qX.title = "Clear search"; qX.setAttribute("aria-label", "Clear search"); qX.hidden = true;
+$("#q").parentNode.appendChild(qX);
+let qMeasure = null;
+function placeQX() {
+  const q = $("#q"); if (!q) return;
+  const v = q.value;
+  qX.hidden = !v;
+  if (!v) return;
+  const cs = getComputedStyle(q);
+  const c = qMeasure || (qMeasure = document.createElement("canvas").getContext("2d"));
+  c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const pl = parseFloat(cs.paddingLeft) || 0, pr = parseFloat(cs.paddingRight) || 0;
+  const x = Math.min(pl + c.measureText(v).width - q.scrollLeft + 4, q.clientWidth - pr + 2);
+  qX.style.left = q.offsetLeft + Math.max(pl, x) + "px";
+}
+qX.addEventListener("pointerdown", (e) => e.preventDefault());
+qX.addEventListener("click", (e) => {
+  e.preventDefault(); e.stopPropagation();
+  clearTimeout(hlTimer);
+  if (G.relate) clearRelate(); else { const q = $("#q"); q.value = ""; st.query = ""; applyHighlight(); }
+  renderLibrary(); placeQX(); $("#q").focus();
 });
+for (const ev of ["input", "keyup", "scroll", "focus", "blur"]) $("#q").addEventListener(ev, placeQX);
+$("#q").parentNode.addEventListener("pointerenter", placeQX);
+window.addEventListener("resize", placeQX);
 $("#q").addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     const q = st.query.trim();

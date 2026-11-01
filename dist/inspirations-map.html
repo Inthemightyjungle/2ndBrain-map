@@ -53,9 +53,12 @@ a{color:var(--accent)}
 .search{flex:1 1 200px;max-width:380px;position:relative;min-width:0}
 .search input{width:100%;height:36px;border:1px solid var(--line);background:var(--bg-2);border-radius:8px;padding:0 70px 0 34px}
 .search input:focus{border-color:var(--line-strong)}
-.search input.committed{cursor:pointer;color:var(--accent);border-color:var(--accent-soft);caret-color:transparent}
-.search input.committed:hover{text-decoration:line-through;text-decoration-color:var(--accent)}
+.search input.committed{color:var(--accent);border-color:var(--accent-soft)}
 .search input.committed~.hint{color:var(--accent)}
+.search .q-x{position:absolute;top:50%;transform:translateY(-50%);width:20px;height:20px;padding:0;border:0;border-radius:50%;background:var(--bg-2);color:var(--muted);font:500 15px/20px system-ui,sans-serif;text-align:center;cursor:pointer;opacity:0;transition:opacity .12s,color .12s,background .12s;z-index:2}
+.search:hover .q-x,.search .q-x:focus-visible{opacity:1}
+.search .q-x:hover{color:var(--text,#fff);background:var(--accent-soft)}
+@media (hover:none){.search .q-x{opacity:1}}
 .search svg{position:absolute;left:11px;top:10px;width:16px;height:16px;color:var(--muted)}
 .search .hint{position:absolute;right:12px;top:9px;font-family:var(--font-mono);font-size:11px;color:var(--faint);white-space:nowrap;pointer-events:none}
 .who{height:36px;width:auto;max-width:190px;border-radius:8px;padding:0 10px;font-size:13px;border:1px solid var(--line);background:var(--bg-2)}
@@ -4980,13 +4983,12 @@ function clearRelate() {
   if (G.selected === "lens") hidePreview();
   renderGraph(); applyHighlight(); syncQChip();
 }
-// after Enter, the search text turns into a chip: clicking it clears the search
+// after Enter, the search text is tinted to show it's the active search; the × at the end of the text clears it
 function syncQChip() {
   const q = $("#q"); if (!q) return;
   const on = !!(G.relate && G.relate.lens && q.value.trim() && q.value.trim() === G.relate.q);
   q.classList.toggle("committed", on);
-  q.title = on ? "Click to clear this search" : "";
-  const hint = $("#q-hint"); if (on && hint) { hint.textContent = "click to clear ×"; hint.title = ""; }
+  if (typeof placeQX === "function") placeQX();
 }
 
 /* ---------- status + controls ---------- */
@@ -6151,13 +6153,34 @@ $("#q").addEventListener("input", (e) => {
   clearTimeout(hlTimer); hlTimer = setTimeout(applyHighlight, st.query ? 70 : 0);
   clearTimeout(qTimer); qTimer = setTimeout(renderLibrary, 120);
 });
-// clicking a committed search (after Enter) clears it and leaves the box ready for a new search
-$("#q").addEventListener("pointerdown", (e) => {
-  const q = e.currentTarget;
-  if (!q.classList.contains("committed") || e.button > 0) return;
-  e.preventDefault();
-  clearTimeout(hlTimer); clearRelate(); renderLibrary(); q.focus();
+// an × sits just after the end of the search text (on hover, or always on touch screens); clicking it clears
+// the search, while clicking the text itself just edits it
+const qX = document.createElement("button");
+qX.type = "button"; qX.className = "q-x"; qX.textContent = "×"; qX.title = "Clear search"; qX.setAttribute("aria-label", "Clear search"); qX.hidden = true;
+$("#q").parentNode.appendChild(qX);
+let qMeasure = null;
+function placeQX() {
+  const q = $("#q"); if (!q) return;
+  const v = q.value;
+  qX.hidden = !v;
+  if (!v) return;
+  const cs = getComputedStyle(q);
+  const c = qMeasure || (qMeasure = document.createElement("canvas").getContext("2d"));
+  c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const pl = parseFloat(cs.paddingLeft) || 0, pr = parseFloat(cs.paddingRight) || 0;
+  const x = Math.min(pl + c.measureText(v).width - q.scrollLeft + 4, q.clientWidth - pr + 2);
+  qX.style.left = q.offsetLeft + Math.max(pl, x) + "px";
+}
+qX.addEventListener("pointerdown", (e) => e.preventDefault());
+qX.addEventListener("click", (e) => {
+  e.preventDefault(); e.stopPropagation();
+  clearTimeout(hlTimer);
+  if (G.relate) clearRelate(); else { const q = $("#q"); q.value = ""; st.query = ""; applyHighlight(); }
+  renderLibrary(); placeQX(); $("#q").focus();
 });
+for (const ev of ["input", "keyup", "scroll", "focus", "blur"]) $("#q").addEventListener(ev, placeQX);
+$("#q").parentNode.addEventListener("pointerenter", placeQX);
+window.addEventListener("resize", placeQX);
 $("#q").addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     const q = st.query.trim();
