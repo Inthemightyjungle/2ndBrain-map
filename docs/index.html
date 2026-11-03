@@ -11,7 +11,7 @@ const db={doc,collection:coll};
 const user={id:async()=>'u_demo',isOwner:async()=>true,canEdit:async()=>true,can:async()=>true,profiles:async(ids)=>Object.fromEntries(ids.map(i=>[i,{id:i,name:'Demo',avatarUrl:'',color:'#888',email:null,isMe:true,guest:false}]))};
 window.claude={use:async(n)=>n==='db'?db:n==='user'?user:null};})();
 </script>
-<title>Inspirations map demo</title>
+<title>2nd Brain demo</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -734,7 +734,7 @@ body.locked .app{visibility:hidden}
 <div class="app" id="app">
   <header class="bar">
     <div class="brand">
-      <h1>Inspirations<span> //</span></h1>
+      <h1>2nd Brain<span> //</span></h1>
       <div class="stats" id="stats">0 notes</div>
     </div>
     <nav class="tabs" role="tablist" aria-label="View">
@@ -789,6 +789,7 @@ body.locked .app{visibility:hidden}
           <button class="tgl" id="o-posts" aria-pressed="true" title="Show every saved post around its topic">Posts</button>
           <button class="tgl" id="o-thumbs" aria-pressed="true" title="Show post thumbnails on the map and in previews">Thumbnails</button>
           <button class="tgl" id="o-timeline" aria-pressed="true" title="Show the timeline bar">Timeline</button>
+          <button class="tgl" id="o-xr" hidden title="Step into the map on Apple Vision Pro (or another headset): pinch to pick, pinch and drag to turn, two hands to resize and move">◎ Vision Pro</button>
           <button class="tgl" id="o-gesture" aria-pressed="false" title="Control the map with hand gestures through your camera">✋ Gestures</button>
           <button class="tgl hid-btn" id="o-hidden" hidden title="Nodes you hid with the eye. Click to show them again.">Hidden</button>
           <button class="tgl tl-filter" id="o-tlcrop" aria-pressed="true" hidden title="Some items are hidden by the timeline range filter. Click to show everything again.">Timeline filter</button>
@@ -954,7 +955,7 @@ body.locked .app{visibility:hidden}
 <div class="lock pending" id="lock" role="dialog" aria-modal="true" aria-labelledby="lock-h">
   <form class="lock-card" id="lock-form" autocomplete="off">
     <div class="lock-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
-    <h2 id="lock-h">Inspirations is locked</h2>
+    <h2 id="lock-h">2nd Brain is locked</h2>
     <p class="lock-sub" id="lock-sub">Checking the lock…</p>
     <div class="lock-fields">
       <input type="password" id="lock-pw" placeholder="Password" aria-label="Password" autocomplete="current-password">
@@ -6565,6 +6566,7 @@ async function lockHash(pw, salt, iter) {
 const lockTag = (d = LOCK.doc) => (d ? "unlock:" + d.hash.slice(0, 16) : "");
 function lockRemembered() {
   const t = lockTag(); if (!t) return true;
+  if (window.__sbUnlock) return false;   // the offline copy needs the password every time to decrypt its data
   try { if (sessionStorage.getItem(t) === "1") return true; } catch {}
   try { const until = +localStorage.getItem(t) || 0; if (until > Date.now()) return true; } catch {}
   return false;
@@ -6589,6 +6591,7 @@ function setLocked(on, msg) {
   $("#z-lock").title = LOCK.doc ? "Lock the map" : "Set a password";
 }
 function applyLockDoc(d) {
+  if (window.__sbUnlock) $("#lock-rem").closest("label").hidden = true;
   LOCK.doc = d && d.hash && d.salt ? d : null;
   LOCK.ready = true;
   setLocked(!!LOCK.doc && !lockRemembered());
@@ -6602,7 +6605,8 @@ $("#lock-form").addEventListener("submit", async (e) => {
   if (!pw) { $("#lock-pw").focus(); return; }
   $("#lock-go").disabled = true;
   try {
-    const ok = (await lockHash(pw, LOCK.doc.salt, LOCK.doc.iter)) === LOCK.doc.hash;
+    const ok = window.__sbUnlock ? await window.__sbUnlock(pw) : (await lockHash(pw, LOCK.doc.salt, LOCK.doc.iter)) === LOCK.doc.hash;
+    if (ok && window.__sbUnlock) loadThumbs();
     if (ok) { LOCK.fails = 0; err.textContent = ""; $("#lock-pw").value = ""; rememberUnlock($("#lock-rem").checked ? 7 : 0); setLocked(false); kick(); return; }
     LOCK.fails++;
     if (LOCK.fails >= 5) { LOCK.until = Date.now() + 30000; LOCK.fails = 0; }
@@ -6630,6 +6634,7 @@ async function lockCheckCurrent() {
   return ok;
 }
 $("#z-lock").onclick = () => {
+  if (window.__sbUnlock) { setLocked(true); return; }   // offline copy: its password is set when the file is made
   if (LOCK.doc && !st.canAdmin) { setLocked(true); return; }
   if (!LOCK.doc && !st.canAdmin) { toast("Only the owner or an editor can set a password."); return; }
   if (!LOCK.doc) { openLockSet(); return; }
@@ -6661,6 +6666,153 @@ $("#lockset-form").addEventListener("submit", async (e) => {
   try { await st.db.doc("settings/lock").set(doc); $("#lockset").hidden = true; toast(LOCK.doc ? "Password changed" : "Password set. The map now asks for it when opened."); }
   catch { $("#ls-err").textContent = "Couldn't save it. Check your connection and try again."; }
 });
+
+/* ---------- Apple Vision Pro ---------- */
+// In Safari on Vision Pro (and iPad / Mac trackpads), look + pinch and drag already moves the map like a mouse.
+// Two-hand pinch arrives as WebKit gesture events: spreading zooms, twisting turns the 3D map.
+(() => {
+  let g0 = null;
+  const wrap = $("#wrap") || document.body;
+  wrap.addEventListener("gesturestart", (e) => { if (LOCK.locked || st.view !== "graph") return; e.preventDefault(); g0 = { s: 1, r: 0, x: e.clientX, y: e.clientY }; }, { passive: false });
+  wrap.addEventListener("gesturechange", (e) => {
+    if (!g0) return; e.preventDefault();
+    const r = G.cv.getBoundingClientRect(), f = e.scale / g0.s;
+    if (isFinite(f) && f > 0) zoomBy(f, (e.clientX || g0.x) - r.left, (e.clientY || g0.y) - r.top);
+    const dr = (e.rotation - g0.r) * Math.PI / 180;
+    if (G.dim === 3 && dr) { if (G.treeM) setTreeM(M3.mul(M3.ry(dr), G.treeM)); else G.cam.yaw += dr; }
+    g0.s = e.scale; g0.r = e.rotation; kick();
+  }, { passive: false });
+  wrap.addEventListener("gestureend", (e) => { if (g0) { e.preventDefault(); g0 = null; } }, { passive: false });
+})();
+
+// Immersive view (WebXR): the map floats in front of you. Pinch a node to pick it, pinch and drag to turn the map,
+// pinch with both hands to resize and move it. Press the Digital Crown to come back to the page.
+const XRV = { on: false };
+(async () => {
+  try { if (navigator.xr && (await navigator.xr.isSessionSupported("immersive-vr"))) { $("#o-xr").hidden = false; } } catch {}
+})();
+$("#o-xr").onclick = () => xrEnter().catch((e) => { XRV.on = false; toast(String((e && e.name) === "SecurityError" || (e && e.name) === "NotAllowedError" ? "The immersive view isn't allowed inside this frame. Open the 2nd Brain HTML copy straight in Safari on Vision Pro." : "Couldn't start the immersive view."), "err"); });
+async function xrEnter() {
+  if (XRV.on || !navigator.xr) return;
+  XRV.on = true;
+  // ask for the session first (it must follow the tap), then load three.js while it starts
+  const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor", "hand-tracking"] });
+  const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js");
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+  renderer.xr.enabled = true;
+  renderer.xr.setReferenceSpaceType("local-floor");
+  renderer.domElement.style.cssText = "position:fixed;inset:0;width:1px;height:1px;opacity:0;pointer-events:none";
+  document.body.append(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color("#04070d");
+  scene.fog = new THREE.Fog("#04070d", 2.5, 7);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.1); sun.position.set(1, 2, 1); scene.add(sun);
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 50);
+  // the map, scaled to about 1.8 m across, at chest height a little in front
+  const root = new THREE.Group(); root.position.set(0, 1.3, -1.5); scene.add(root);
+  const nodes = G.nodes.filter((n) => n.kind !== "lens" && isFinite(n.x));
+  let R = 1; for (const n of nodes) R = Math.max(R, Math.hypot(n.x, n.y, n.z || 0));
+  const S = 0.9 / R;
+  const P = (n) => new THREE.Vector3(n.x * S, -n.y * S, (n.z || 0) * S);
+  const size = (n) => (n.kind === "core" ? 0.04 : n.kind === "realm" || n.kind === "group" ? 0.028 : n.kind === "cat" ? 0.017 : n.hub ? 0.011 : 0.008);
+  const geo = new THREE.SphereGeometry(1, 18, 12);
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.1, emissive: 0x112233 });
+  const balls = new THREE.InstancedMesh(geo, mat, nodes.length);
+  const m4 = new THREE.Matrix4(), col = new THREE.Color();
+  nodes.forEach((n, i) => { const p = P(n), r = size(n); m4.makeScale(r, r, r).setPosition(p); balls.setMatrixAt(i, m4); col.set(n.color || "#9fb0c8"); balls.setColorAt(i, col); n._xr = p; });
+  root.add(balls);
+  // branch lines (parent → child) and the fainter relation lines
+  const lineSet = (pairs, opacity) => {
+    const pos = [], cols = [];
+    for (const [a, b] of pairs) { if (!a._xr || !b._xr) continue; pos.push(a._xr.x, a._xr.y, a._xr.z, b._xr.x, b._xr.y, b._xr.z); col.set(b.color || "#9fb0c8"); cols.push(col.r, col.g, col.b, col.r, col.g, col.b); }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity }));
+  };
+  root.add(lineSet(G.tree.map((l) => [l.s, l.t]), 0.75));
+  if (G.showRel) root.add(lineSet(G.links.filter((l) => l.type !== "lens").map((l) => [l.s, l.t]), 0.18));
+  // saved posts as small points around their topics
+  const ps = []; for (const p of G.posts) if (isFinite(p.x)) ps.push(p.x * S, -p.y * S, (p.z || 0) * S);
+  if (ps.length) { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(ps, 3)); root.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 0.006, color: 0x8fdcff, transparent: true, opacity: 0.55 }))); }
+  // labels for the core, branches and categories, plus whichever node you pick
+  const label = (text, color, hgt) => {
+    const c = document.createElement("canvas"), x = c.getContext("2d"), fs = 56;
+    x.font = `600 ${fs}px system-ui, sans-serif`; const w = Math.ceil(x.measureText(text).width) + 40;
+    c.width = w; c.height = fs + 30; x.font = `600 ${fs}px system-ui, sans-serif`; x.textBaseline = "middle";
+    x.lineWidth = 10; x.strokeStyle = "rgba(4,7,13,.9)"; x.strokeText(text, 20, c.height / 2); x.fillStyle = color; x.fillText(text, 20, c.height / 2);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true }));
+    sp.scale.set(hgt * (w / c.height), hgt, 1); return sp;
+  };
+  for (const n of nodes) {
+    if (!["core", "realm", "group", "cat"].includes(n.kind)) continue;
+    const hgt = n.kind === "core" ? 0.05 : n.kind === "cat" ? 0.022 : 0.034;
+    const sp = label(short(n.title, 40), n.kind === "cat" ? "#b9c7d8" : "#ffffff", hgt);
+    sp.position.copy(n._xr).add(new THREE.Vector3(0, size(n) + hgt * 0.8, 0)); root.add(sp);
+  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.08, 8, 40), new THREE.MeshBasicMaterial({ color: 0x38e1ff }));
+  ring.visible = false; root.add(ring);
+  let picked = null, pickLabel = null;
+  const pick = (n) => {
+    picked = n; if (pickLabel) { root.remove(pickLabel); pickLabel = null; }
+    if (!n) { ring.visible = false; return; }
+    const r = size(n) * 1.9; ring.scale.set(r, r, r); ring.position.copy(n._xr); ring.visible = true;
+    pickLabel = label(short(n.title, 60), "#38e1ff", 0.03); pickLabel.position.copy(n._xr).add(new THREE.Vector3(0, size(n) + 0.04, 0)); root.add(pickLabel);
+  };
+  // pinches: a quick pinch picks the node you look at; pinch-and-drag turns the map; two hands resize and move it
+  const held = new Map();
+  const ref = () => renderer.xr.getReferenceSpace();
+  session.addEventListener("selectstart", (e) => held.set(e.inputSource, { t0: performance.now(), last: null, moved: 0 }));
+  session.addEventListener("selectend", (e) => {
+    const h0 = held.get(e.inputSource); held.delete(e.inputSource);
+    if (!h0 || performance.now() - h0.t0 > 350 || h0.moved > 0.03 || !e.frame) return;
+    const pose = e.frame.getPose(e.inputSource.targetRaySpace, ref()); if (!pose) return;
+    const o = new THREE.Vector3().copy(pose.transform.position), q = new THREE.Quaternion().copy(pose.transform.orientation);
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+    root.updateMatrixWorld();
+    let best = null, bd = Infinity;
+    const wp = new THREE.Vector3(), scale = root.scale.x;
+    for (const n of nodes) {
+      wp.copy(n._xr).applyMatrix4(root.matrixWorld);
+      const v = wp.clone().sub(o), along = v.dot(dir); if (along < 0) continue;
+      const off = v.sub(dir.clone().multiplyScalar(along)).length(), lim = size(n) * scale * 2.5 + 0.012 + along * 0.012;
+      if (off < lim && off / lim < bd) { bd = off / lim; best = n; }
+    }
+    pick(best);
+  });
+  let pinch2 = null;
+  renderer.setAnimationLoop((t, frame) => {
+    if (frame) {
+      const pts = [];
+      for (const [src, h0] of held) {
+        const pose = frame.getPose(src.gripSpace || src.targetRaySpace, ref()); if (!pose) continue;
+        const p = new THREE.Vector3().copy(pose.transform.position); pts.push(p);
+        if (h0.last) h0.moved += p.distanceTo(h0.last);
+        if (held.size === 1 && h0.last) {
+          const d = p.clone().sub(h0.last);
+          root.rotation.y += d.x * 4;
+          root.rotation.x = clamp(root.rotation.x - d.y * 4, -1.2, 1.2);
+        }
+        h0.last = p;
+      }
+      if (pts.length === 2) {
+        const dist = pts[0].distanceTo(pts[1]), mid = pts[0].clone().add(pts[1]).multiplyScalar(0.5);
+        if (pinch2) { root.scale.multiplyScalar(clamp(dist / pinch2.dist, 0.9, 1.1)); root.scale.clampScalar(0.25, 4); root.position.add(mid.clone().sub(pinch2.mid)); }
+        pinch2 = { dist, mid };
+      } else pinch2 = null;
+    }
+    renderer.render(scene, camera);
+  });
+  await renderer.xr.setSession(session);
+  session.addEventListener("end", () => {
+    XRV.on = false;
+    renderer.setAnimationLoop(null); renderer.dispose(); renderer.domElement.remove();
+    for (const n of nodes) delete n._xr;
+    if (picked) { st.selected = picked.id; showPreview(picked.id); panTo(picked.id); pulse(picked.id); }
+  });
+  toast("Immersive view on. Press the Digital Crown to come back.");
+}
 
 /* ---------- voice notes: record a conversation, grow a mind map live, then summarise and add it to the map ---------- */
 const VN = { rec: null, on: false, blocked: false, t0: 0, acc: 0, timer: null, tree: null, seen: new Set(), busy: false, lastWords: 0, lastAt: 0, again: null, result: null, ctl: null };

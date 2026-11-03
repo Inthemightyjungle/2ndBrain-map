@@ -18,7 +18,7 @@ window.claude={use:async(n)=>n==='db'?db:n==='user'?user:null};})();
 """
 app = open(os.path.join(ROOT, "dist", "inspirations-map.html"), encoding="utf-8").read()
 i = app.index("<title>")
-out = stub + app[i:].replace("<title>Inspirations</title>", "<title>Inspirations map demo</title>", 1)
+out = stub + app[i:].replace("<title>2nd Brain</title>", "<title>2nd Brain demo</title>", 1)
 os.makedirs(os.path.join(ROOT, "docs"), exist_ok=True)
 open(os.path.join(ROOT, "docs", "index.html"), "w", encoding="utf-8").write(out)
 open(os.path.join(ROOT, "docs", ".nojekyll"), "w").close()

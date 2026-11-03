@@ -1,6 +1,6 @@
-# Inspirations map
+# 2nd Brain
 
-An interactive 2D / 3D neural map of the team's inspiration posts, projects, horizon scans and calendar.
+2nd Brain is an interactive 2D / 3D neural map of the team's inspiration posts, projects, horizon scans and calendar.
 It runs as a single self-contained HTML page (a Claude artifact) and reads its notes from the artifact's
 database at runtime, so **this repo holds code only — no notes, posts, people or client data**.
 
