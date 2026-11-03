@@ -5806,10 +5806,18 @@ const VN = { rec: null, on: false, blocked: false, t0: 0, acc: 0, timer: null, t
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 const vnWords = () => ($("#vn-text").value.match(/\S+/g) || []).length;
 function vnStatus(t, warn) { const el = $("#vn-status"); el.textContent = t || ""; el.classList.toggle("warn", !!warn); }
+// the offline copy has no Claude and can't write to the shared map: it packages the session instead, and the
+// online map loads that package (paste it into the notes box, or Load the saved file) to summarise and approve it
+const VN_OFF = () => !!window.__sbUnlock || !st.ai;
+function vnModes() {
+  const off = VN_OFF();
+  $("#vn-refine").hidden = off; $("#vn-approve").hidden = off; $("#vn-send").hidden = !off;
+  $("#vn-refine").disabled = !st.ai;
+  $("#vn-refine").title = "Tidy the map into clear branches and write a summary";
+}
 function vnOpen() {
   $("#vn").hidden = false;
-  $("#vn-refine").disabled = !st.ai;
-  $("#vn-refine").title = st.ai ? "Tidy the map into clear branches and write a summary" : "Needs Claude: open the map on claude.ai";
+  vnModes();
   if (!VN.on && !vnWords()) vnStatus(SpeechRec ? "Press Record and talk. The map grows as it listens." : "Live listening isn't supported in this browser. Type, dictate with your keyboard's mic, or paste a transcript.", !SpeechRec);
   vnDraw();
 }
@@ -5856,7 +5864,7 @@ function vnStop() {
   VN.rec = null;
   $("#vn").classList.remove("rec"); $("#vn-rec").querySelector("span").textContent = vnWords() ? "Resume" : "Record"; $("#vn-stop").disabled = true;
   $("#vn-interim").textContent = "";
-  if (!VN.blocked) vnStatus(vnWords() ? (st.ai ? "Stopped. Press Summary & refine to tidy the map, then Approve to add it." : "Stopped. Copy the transcript to keep it.") : "");
+  if (!VN.blocked) vnStatus(vnWords() ? (!VN_OFF() ? "Stopped. Press Summary & refine to tidy the map, then Approve to add it." : "Stopped. Press Send to 2nd Brain, then open the online map to summarise and approve it.") : "");
   vnTree(true);
 }
 $("#vn-rec").onclick = () => (VN.on ? vnStop() : vnStart());
@@ -6031,6 +6039,64 @@ $("#vn-approve").onclick = () => {
   $("#vn-approve").disabled = true;
   st.selected = hubId;
   setTimeout(() => { applyHighlight(); if (st.view === "graph") { showPreview(hubId); panTo(hubId); } pulse(hubId); }, 400);
+};
+// ---- hand-off between the offline copy and the online map ----
+const VN_TAG = "2nd-brain-voice-note";
+function vnPack() {
+  return JSON.stringify({ kind: VN_TAG, v: 1, title: $("#vn-title").value.trim() || $("#vn-title").placeholder || "", text: $("#vn-text").value.trim(), acc: VN.acc + (VN.on ? Date.now() - VN.t0 : 0), day: todayIso(), tree: VN.tree && !VN.result ? VN.tree : null });
+}
+function vnUnpack(raw) {
+  let p = null;
+  try { p = JSON.parse(String(raw || "").trim()); } catch { return false; }
+  if (!p || p.kind !== VN_TAG || typeof p.text !== "string" || !p.text.trim()) return false;
+  if (VN.on) vnStop();
+  if (VN.ctl) VN.ctl.abort();
+  Object.assign(VN, { acc: Math.max(0, +p.acc || 0), result: null, seen: new Set(), lastWords: 0, lastAt: 0 });
+  $("#vn-text").value = p.text.slice(0, 200000);
+  $("#vn-title").value = short(squash(p.title || ""), 80);
+  $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum"); $("#vn-approve").disabled = true;
+  VN.tree = p.tree && Array.isArray(p.tree.nodes) ? vnClean(p.tree.nodes) : null;
+  vnTick(); vnDraw();
+  if (!VN_OFF()) { vnStatus(`Loaded the session from ${p.day || "the offline copy"}. Press Summary & refine, then Approve to add it.`); vnTree(true); }
+  else vnStatus("Loaded. Open the online 2nd Brain to summarise and add it.");
+  return true;
+}
+$("#vn-send").onclick = async () => {
+  if (!$("#vn-text").value.trim()) { vnStatus("Nothing to send yet. Record or type something first.", true); return; }
+  if (VN.on) vnStop();
+  const pack = vnPack();
+  let copied = false;
+  try { await navigator.clipboard.writeText(pack); copied = true; } catch {}
+  // also save it as a small file, in case the clipboard doesn't make it across (e.g. to another device)
+  let saved = false;
+  try {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([pack], { type: "application/json" }));
+    a.download = `voice-note-${todayIso()}-${String($("#vn-title").value || "conversation").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30)}.json`;
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); saved = true;
+  } catch {}
+  vnStatus(`${copied ? "Copied" : saved ? "Saved" : "Ready"}. Now open 2nd Brain on claude.ai › Voice notes, and ${copied ? "paste into the notes box (Ctrl/⌘ + V)" : "press Load and pick the saved file"}. Then Summary & refine and Approve.`);
+  toast(copied ? "Session copied. Paste it into Voice notes on the online map." : saved ? "Session saved as a file. Load it into Voice notes on the online map." : "Couldn't copy or save. Use Copy for the transcript instead.", copied || saved ? undefined : "err");
+};
+$("#vn-text").addEventListener("paste", (e) => {
+  const t = (e.clipboardData && e.clipboardData.getData("text")) || "";
+  if (t.includes(VN_TAG) && vnUnpack(t)) e.preventDefault();
+});
+$("#vn-load").onclick = () => $("#vn-file").click();
+$("#vn-file").onchange = async (e) => {
+  const f = e.target.files && e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  if (f.size > 4e6) { vnStatus("That file is too big for a voice note.", true); return; }
+  const t = await f.text();
+  if (vnUnpack(t)) return;
+  // a plain transcript file
+  if (VN.on) vnStop();
+  Object.assign(VN, { result: null, seen: new Set(), lastWords: 0, lastAt: 0 });
+  $("#vn-text").value = t.slice(0, 200000).trim();
+  if (!$("#vn-title").value.trim()) $("#vn-title").value = short(f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " "), 80);
+  $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum"); $("#vn-approve").disabled = true;
+  vnStatus(VN_OFF() ? "Loaded the transcript." : "Loaded the transcript. Press Summary & refine, then Approve.");
+  vnTree(true);
 };
 $("#vn-copy").onclick = async () => { try { await navigator.clipboard.writeText($("#vn-text").value); toast("Transcript copied"); } catch { $("#vn-text").select(); toast("Select-all is on: copy it with Ctrl/⌘ + C"); } };
 $("#vn-new").onclick = () => {

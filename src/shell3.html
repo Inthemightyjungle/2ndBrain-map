@@ -575,8 +575,11 @@ textarea{resize:vertical;min-height:120px;line-height:1.5}
   </div>
   <footer class="vn-foot">
     <input id="vn-ask" type="text" placeholder="Refine with an instruction (optional), e.g. group by project" aria-label="Refine instruction">
-    <button class="btn small" id="vn-refine" type="button" data-ai>Summary &amp; refine</button>
+    <button class="btn small" id="vn-refine" type="button">Summary &amp; refine</button>
     <button class="btn small primary" id="vn-approve" type="button" disabled>Approve</button>
+    <button class="btn small primary" id="vn-send" type="button" hidden title="Package this session so the online 2nd Brain can summarise it and add it to the map">Send to 2nd Brain</button>
+    <button class="btn small ghost" id="vn-load" type="button" title="Load a session saved from the offline copy, or a transcript file">Load</button>
+    <input id="vn-file" type="file" accept=".json,.txt,.md,application/json,text/plain" hidden>
     <button class="btn small ghost" id="vn-copy" type="button" title="Copy the transcript">Copy</button>
     <button class="btn small ghost" id="vn-new" type="button" title="Clear and start a new one">New</button>
   </footer>
