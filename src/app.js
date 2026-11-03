@@ -5525,6 +5525,7 @@ $("#q").addEventListener("keydown", (e) => {
   } else if (e.key === "Escape") { clearRelate(); renderLibrary(); e.target.blur(); }
 });
 document.addEventListener("keydown", (e) => {
+  if (LOCK.locked) return;
   const tag = (e.target && e.target.tagName) || "";
   const typing = /INPUT|TEXTAREA|SELECT/.test(tag);
   if (e.key === "Escape" && !typing) { if (G.pulled) releasePull(); else if (!$("#preview").hidden) hidePreview(); else if (st.mode) closeDrawer(); else if (G.relate) clearRelate(); return; }
@@ -5536,6 +5537,372 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "g") setView("graph");
   else if (e.key === "l") setView("library");
 });
+
+/* ---------- lock screen ---------- */
+// A password stops the map showing until it's entered. Only a salted PBKDF2 hash is stored (settings/lock); the
+// password itself is never saved. This is a lock screen: who can open the map at all is set by its sharing.
+const LOCK = { doc: null, ready: false, locked: true, fails: 0, until: 0 };
+document.body.classList.add("locked");
+setTimeout(() => { if (!LOCK.ready) { LOCK.ready = true; setLocked(true, "Couldn't check the lock. Reload to try again."); } }, 12000);
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function lockHash(pw, salt, iter) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveBits"]);
+  return b64(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: unb64(salt), iterations: iter || 210000 }, key, 256));
+}
+const lockTag = (d = LOCK.doc) => (d ? "unlock:" + d.hash.slice(0, 16) : "");
+function lockRemembered() {
+  const t = lockTag(); if (!t) return true;
+  try { if (sessionStorage.getItem(t) === "1") return true; } catch {}
+  try { const until = +localStorage.getItem(t) || 0; if (until > Date.now()) return true; } catch {}
+  return false;
+}
+function rememberUnlock(days, d = LOCK.doc) {
+  const t = lockTag(d); if (!t) return;
+  try { sessionStorage.setItem(t, "1"); } catch {}
+  if (days) try { localStorage.setItem(t, String(Date.now() + days * 864e5)); } catch {}
+}
+function forgetUnlock() {
+  const t = lockTag(); if (!t) return;
+  try { sessionStorage.removeItem(t); } catch {}
+  try { localStorage.removeItem(t); } catch {}
+}
+function setLocked(on, msg) {
+  LOCK.locked = on;
+  document.body.classList.toggle("locked", on);
+  const el = $("#lock");
+  el.hidden = !on; el.classList.toggle("pending", !LOCK.ready);
+  $("#lock-sub").textContent = msg || (LOCK.ready ? "Enter the password to open the map." : "Checking the lock…");
+  if (on && LOCK.ready) setTimeout(() => $("#lock-pw").focus(), 30);
+  $("#z-lock").title = LOCK.doc ? "Lock the map" : "Set a password";
+}
+function applyLockDoc(d) {
+  LOCK.doc = d && d.hash && d.salt ? d : null;
+  LOCK.ready = true;
+  setLocked(!!LOCK.doc && !lockRemembered());
+}
+$("#lock-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!LOCK.doc) { setLocked(false); return; }
+  const err = $("#lock-err");
+  if (Date.now() < LOCK.until) { err.textContent = `Too many tries. Wait ${Math.ceil((LOCK.until - Date.now()) / 1000)} s.`; return; }
+  const pw = $("#lock-pw").value;
+  if (!pw) { $("#lock-pw").focus(); return; }
+  $("#lock-go").disabled = true;
+  try {
+    const ok = (await lockHash(pw, LOCK.doc.salt, LOCK.doc.iter)) === LOCK.doc.hash;
+    if (ok) { LOCK.fails = 0; err.textContent = ""; $("#lock-pw").value = ""; rememberUnlock($("#lock-rem").checked ? 7 : 0); setLocked(false); kick(); return; }
+    LOCK.fails++;
+    if (LOCK.fails >= 5) { LOCK.until = Date.now() + 30000; LOCK.fails = 0; }
+    err.textContent = "That's not the password.";
+    const el = $("#lock"); el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake");
+    $("#lock-pw").select();
+  } catch { err.textContent = "This browser can't check the password here."; }
+  finally { $("#lock-go").disabled = false; }
+});
+// the lock button: lock now, or set / change / remove the password (owners and editors)
+function openLockSet() {
+  const has = !!LOCK.doc;
+  $("#lockset-h").textContent = has ? "Change password" : "Set a password";
+  $("#lockset-sub").textContent = has ? "Everyone who opens the map will need the new password." : "Anyone who opens the map will need this password first.";
+  $("#ls-cur").hidden = !has; $("#ls-remove").hidden = !has;
+  for (const id of ["ls-cur", "ls-new", "ls-new2"]) $("#" + id).value = "";
+  $("#ls-err").textContent = "";
+  $("#lockset").hidden = false;
+  setTimeout(() => $(has ? "#ls-cur" : "#ls-new").focus(), 30);
+}
+async function lockCheckCurrent() {
+  if (!LOCK.doc) return true;
+  const ok = (await lockHash($("#ls-cur").value, LOCK.doc.salt, LOCK.doc.iter)) === LOCK.doc.hash;
+  if (!ok) { $("#ls-err").textContent = "The current password isn't right."; $("#ls-cur").select(); }
+  return ok;
+}
+$("#z-lock").onclick = () => {
+  if (LOCK.doc && !st.canAdmin) { setLocked(true); return; }
+  if (!LOCK.doc && !st.canAdmin) { toast("Only the owner or an editor can set a password."); return; }
+  if (!LOCK.doc) { openLockSet(); return; }
+  // owners: a small choice between locking now and changing the password
+  const m = h("div", { class: "lockmenu hud" },
+    h("button", { class: "btn small", onclick: () => { m.remove(); forgetUnlock(); setLocked(true); } }, "Lock now"),
+    h("button", { class: "btn small ghost", onclick: () => { m.remove(); openLockSet(); } }, "Change password…"));
+  document.querySelector(".lockmenu")?.remove();
+  $("#z-lock").after(m);
+  setTimeout(() => document.addEventListener("pointerdown", function off(e) { if (!m.contains(e.target)) { m.remove(); document.removeEventListener("pointerdown", off, true); } }, true), 0);
+};
+$("#ls-cancel").onclick = () => { $("#lockset").hidden = true; };
+$("#ls-remove").onclick = async () => {
+  if (!st.db || !st.canAdmin) return;
+  if (!(await lockCheckCurrent())) return;
+  try { await st.db.doc("settings/lock").delete(); $("#lockset").hidden = true; toast("Password removed. The map opens without one now."); }
+  catch { $("#ls-err").textContent = "Couldn't remove it. Check your connection and try again."; }
+};
+$("#lockset-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!st.db || !st.canAdmin) { $("#ls-err").textContent = "Only the owner or an editor can change the password."; return; }
+  const a = $("#ls-new").value, b = $("#ls-new2").value;
+  if (a.length < 8) { $("#ls-err").textContent = "Use at least 8 characters."; $("#ls-new").focus(); return; }
+  if (a !== b) { $("#ls-err").textContent = "The two new passwords don't match."; $("#ls-new2").select(); return; }
+  if (!(await lockCheckCurrent())) return;
+  const salt = b64(crypto.getRandomValues(new Uint8Array(16)).buffer), iter = 210000;
+  const doc = { v: 1, salt, iter, hash: await lockHash(a, salt, iter), changed: Date.now() };
+  rememberUnlock(0, doc);   // this tab stays open after the change
+  try { await st.db.doc("settings/lock").set(doc); $("#lockset").hidden = true; toast(LOCK.doc ? "Password changed" : "Password set. The map now asks for it when opened."); }
+  catch { $("#ls-err").textContent = "Couldn't save it. Check your connection and try again."; }
+});
+
+/* ---------- voice notes: record a conversation, grow a mind map live, then summarise and add it to the map ---------- */
+const VN = { rec: null, on: false, blocked: false, t0: 0, acc: 0, timer: null, tree: null, seen: new Set(), busy: false, lastWords: 0, lastAt: 0, again: null, result: null, ctl: null };
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+const vnWords = () => ($("#vn-text").value.match(/\S+/g) || []).length;
+function vnStatus(t, warn) { const el = $("#vn-status"); el.textContent = t || ""; el.classList.toggle("warn", !!warn); }
+function vnOpen() {
+  $("#vn").hidden = false;
+  $("#vn-refine").disabled = !st.ai;
+  $("#vn-refine").title = st.ai ? "Tidy the map into clear branches and write a summary" : "Needs Claude: open the map on claude.ai";
+  if (!VN.on && !vnWords()) vnStatus(SpeechRec ? "Press Record and talk. The map grows as it listens." : "Live listening isn't supported in this browser. Type, dictate with your keyboard's mic, or paste a transcript.", !SpeechRec);
+  vnDraw();
+}
+$("#b-voice").onclick = vnOpen;
+$("#vn-close").onclick = () => { $("#vn").hidden = true; };
+function vnTick() { const s = Math.floor((VN.acc + (VN.on ? Date.now() - VN.t0 : 0)) / 1000); $("#vn-time").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+function vnAppend(t) {
+  t = squash(t); if (!t) return;
+  const ta = $("#vn-text"), v = ta.value.replace(/\s+$/, "");
+  ta.value = v + (v ? (/[.!?]$/.test(v) ? " " : ". ") : "") + t.charAt(0).toUpperCase() + t.slice(1);
+  ta.scrollTop = ta.scrollHeight;
+  vnSoon();
+}
+function vnStart() {
+  if (VN.on) return;
+  if (!SpeechRec) { vnStatus("Live listening isn't supported in this browser. Tap in the notes box and use your keyboard's dictation (the mic key), or paste a transcript.", true); $("#vn-text").focus(); return; }
+  let r;
+  try { r = new SpeechRec(); } catch { vnStatus("The microphone isn't available here. Use your keyboard's dictation in the notes box, or paste a transcript.", true); return; }
+  r.continuous = true; r.interimResults = true; r.lang = navigator.language || "en-SG";
+  r.onresult = (e) => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) { const x = e.results[i]; if (x.isFinal) vnAppend(x[0].transcript); else interim += x[0].transcript; }
+    $("#vn-interim").textContent = interim;
+  };
+  r.onerror = (e) => {
+    if (["not-allowed", "service-not-allowed", "audio-capture"].includes(e.error)) {
+      VN.blocked = true; vnStop();
+      vnStatus(e.error === "audio-capture" ? "No microphone found. Type, dictate with your keyboard, or paste a transcript instead." : "This page isn't allowed to use the microphone here. Tap in the notes box and use your keyboard's dictation (the mic key), or paste a transcript.", true);
+    } else if (e.error === "network") vnStatus("Speech recognition lost its connection. It will keep trying.", true);
+  };
+  r.onend = () => { if (VN.on && !VN.blocked) { try { r.start(); } catch {} } };   // browsers stop after a pause; keep listening
+  VN.blocked = false;
+  if (VN.result) { VN.result = null; $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum"); $("#vn-approve").disabled = true; }
+  try { r.start(); } catch { vnStatus("Couldn't start listening. Try again.", true); return; }
+  VN.rec = r; VN.on = true; VN.t0 = Date.now();
+  clearInterval(VN.timer); VN.timer = setInterval(vnTick, 500);
+  $("#vn").classList.add("rec"); $("#vn-rec").querySelector("span").textContent = "Listening…"; $("#vn-stop").disabled = false;
+  vnStatus("Listening. Speech is turned into text by your browser's speech service.");
+}
+function vnStop() {
+  if (VN.on) VN.acc += Date.now() - VN.t0;
+  VN.on = false; clearInterval(VN.timer); vnTick();
+  try { VN.rec && VN.rec.stop(); } catch {}
+  VN.rec = null;
+  $("#vn").classList.remove("rec"); $("#vn-rec").querySelector("span").textContent = vnWords() ? "Resume" : "Record"; $("#vn-stop").disabled = true;
+  $("#vn-interim").textContent = "";
+  if (!VN.blocked) vnStatus(vnWords() ? (st.ai ? "Stopped. Press Summary & refine to tidy the map, then Approve to add it." : "Stopped. Copy the transcript to keep it.") : "");
+  vnTree(true);
+}
+$("#vn-rec").onclick = () => (VN.on ? vnStop() : vnStart());
+$("#vn-stop").onclick = vnStop;
+$("#vn-text").addEventListener("input", () => { VN.result = null; $("#vn-approve").disabled = true; vnSoon(2500); });
+// rebuild the live map after enough new words, at most every ~10 s, one request at a time
+function vnSoon(delay = 4000) { clearTimeout(VN.again); VN.again = setTimeout(() => vnTree(false), delay); }
+async function vnTree(force) {
+  const text = $("#vn-text").value.trim(), words = vnWords();
+  if (!text) { VN.tree = null; vnDraw(); return; }
+  if (VN.result) return;   // a refined map stays until the text changes
+  if (!st.ai) { VN.tree = vnLocalTree(text); vnDraw(); return; }
+  if (VN.busy) { vnSoon(3000); return; }
+  if (!force && (words - VN.lastWords < 18 || Date.now() - VN.lastAt < 10000)) { if (words > VN.lastWords) vnSoon(4000); return; }
+  VN.busy = true; VN.lastWords = words; VN.lastAt = Date.now();
+  try {
+    const prev = VN.tree ? VN.tree.nodes.map((n) => `${n.id} | ${n.parent || "-"} | ${n.label}`).join("\n") : "(none yet)";
+    const res = await st.ai.json(
+`You take live notes of a conversation as a mind map. Turn the transcript so far into a tree: one root (the main subject), branches for the topics discussed, and short leaves for the key points, decisions, ideas and action items under each. Keep the ids and wording of the previous map wherever the idea is the same, so the map doesn't jump around; add, merge or move nodes only as the conversation makes clear. At most 30 nodes; labels at most 6 words.
+
+PREVIOUS MAP (id | parent | label)
+${prev}
+
+TRANSCRIPT SO FAR
+${text.slice(-9000)}
+
+Reply with only JSON: {"title":"<short title for the conversation>","nodes":[{"id":"<id>","label":"<label>","parent":"<parent id or null for the root>"}]}`, { modelTier: "quick" });
+    if (res && Array.isArray(res.nodes) && res.nodes.length && !VN.result) {
+      VN.tree = vnClean(res.nodes);
+      if (res.title && !$("#vn-title").value.trim()) $("#vn-title").placeholder = short(String(res.title), 80);
+      vnDraw();
+    }
+  } catch (e) { const m = aiErr(e); if (m) vnStatus(m, true); }
+  finally { VN.busy = false; }
+}
+function vnClean(nodes) {
+  const out = [], ids = new Set();
+  for (const n of nodes.slice(0, 40)) { const id = String(n.id || ""); if (!id || ids.has(id)) continue; ids.add(id); out.push({ id, label: short(squash(n.label), 48), parent: n.parent == null ? null : String(n.parent) }); }
+  for (const n of out) if (n.parent && !ids.has(n.parent)) n.parent = null;
+  const roots = out.filter((n) => !n.parent);
+  if (roots.length > 1) { const r = { id: "_root", label: short($("#vn-title").value.trim() || $("#vn-title").placeholder || "Conversation", 48), parent: null }; for (const n of roots) n.parent = r.id; out.unshift(r); }
+  return { nodes: out };
+}
+// without Claude (e.g. the offline copy): the last sentences as branches of one root
+function vnLocalTree(text) {
+  const sents = text.split(/(?<=[.!?])\s+/).map((x) => squash(x)).filter((x) => x.length > 3).slice(-14);
+  const root = { id: "r", label: short($("#vn-title").value.trim() || "Conversation", 48), parent: null };
+  return { nodes: [root, ...sents.map((x, i) => ({ id: "s" + i, label: short(x.split(" ").slice(0, 7).join(" "), 48), parent: "r" }))] };
+}
+// a left-to-right tree in SVG: the root on the left, each level a column, leaves spaced evenly
+function vnDraw() {
+  const svg = $("#vn-map"), tree = VN.tree;
+  $("#vn-empty").hidden = !!(tree && tree.nodes.length);
+  svg.replaceChildren();
+  if (!tree || !tree.nodes.length) return;
+  const kids = new Map(), byId = new Map(tree.nodes.map((n) => [n.id, n]));
+  for (const n of tree.nodes) if (n.parent) { if (!kids.has(n.parent)) kids.set(n.parent, []); kids.get(n.parent).push(n); }
+  const root = tree.nodes.find((n) => !n.parent) || tree.nodes[0];
+  const COL = 190, ROW = 30, pos = new Map(); let leaf = 0, depthMax = 0;
+  const place = (n, d, guard) => {
+    if (guard.has(n.id)) return; guard.add(n.id);
+    depthMax = Math.max(depthMax, d);
+    const ks = kids.get(n.id) || [];
+    if (!ks.length) { pos.set(n.id, { x: 20 + d * COL, y: 24 + leaf++ * ROW, d }); return; }
+    for (const k of ks) place(k, d + 1, guard);
+    const ys = ks.map((k) => pos.get(k.id)).filter(Boolean).map((p) => p.y);
+    pos.set(n.id, { x: 20 + d * COL, y: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 24 + leaf++ * ROW, d });
+  };
+  place(root, 0, new Set());
+  const W = 40 + depthMax * COL + 200, H = Math.max(120, 24 + leaf * ROW + 10);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("width", W); svg.setAttribute("height", H);
+  const NS = "http://www.w3.org/2000/svg", mk = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+  for (const n of tree.nodes) {
+    const p = pos.get(n.id), q = n.parent && pos.get(n.parent); if (!p || !q) continue;
+    const mx = (q.x + p.x) / 2;
+    svg.append(mk("path", { class: "ln" + (VN.seen.has(n.id) ? "" : " new"), d: `M${q.x},${q.y} C${mx},${q.y} ${mx},${p.y} ${p.x},${p.y}` }));
+  }
+  for (const n of tree.nodes) {
+    const p = pos.get(n.id); if (!p) continue;
+    const g = mk("g", { class: "nd" + (n === root ? " root" : p.d >= 2 ? " pt" : "") + (VN.seen.has(n.id) ? "" : " new"), transform: `translate(${p.x},${p.y})` });
+    g.append(mk("circle", { r: n === root ? 7 : p.d >= 2 ? 3.5 : 5 }));
+    const t = mk("text", { x: 10, y: 4 }); t.textContent = n.label; g.append(t);
+    svg.append(g);
+  }
+  VN.seen = new Set(tree.nodes.map((n) => n.id));
+}
+// Summary & refine: tidy the map into clear branches, write a summary, and pick where it belongs in the map
+$("#vn-refine").onclick = async () => {
+  const text = $("#vn-text").value.trim();
+  if (!st.ai) { toast("Summary needs Claude: open the map on claude.ai"); return; }
+  if (!text) { vnStatus("Nothing to summarise yet.", true); return; }
+  if (VN.on) vnStop();
+  if (VN.ctl) VN.ctl.abort();
+  const ctl = (VN.ctl = new AbortController());
+  $("#vn-refine").disabled = true; $("#vn-approve").disabled = true;
+  vnStatus("Summarising and re-organising…");
+  try {
+    const ask = $("#vn-ask").value.trim();
+    const head = text.length > 16000 ? text.slice(0, 6000) + "\n…\n" + text.slice(-10000) : text;
+    const res = await st.ai.json(
+`You turn a recorded conversation into a tidy entry for a team's mind map of inspiration, research and projects.
+
+TRANSCRIPT
+${head}
+
+CURRENT LIVE MAP (id | parent | label)
+${VN.tree ? VN.tree.nodes.map((n) => `${n.id} | ${n.parent || "-"} | ${n.label}`).join("\n") : "(none)"}
+${ask ? `\nTHE PERSON ASKS: ${short(ask, 400)}\n` : ""}
+THE TEAM'S MAP (id | group › category › parent topic | topic title | summary)
+${treeLines().slice(0, 320).join("\n")}
+
+CATEGORIES
+${cats().map((c) => `${c.name} (${groupLabel(groupOf(c))})`).join("; ")}
+
+Write: a title (under 60 characters, specific); a 3–6 sentence summary; 2–7 branches, each a clear topic with 1–6 short points (decisions, ideas, facts, open questions); action items with owners when named; the single best category for this conversation and, if it clearly belongs under an existing topic, that topic's id as parent; and up to 6 ids of existing topics it relates to.
+
+Reply with only JSON: {"title":"","summary":"","branches":[{"title":"","points":[""]}],"actions":[""],"category":"<category name>","parent":"<topic id or null>","related":["<topic id>"]}`, { modelTier: "default", signal: ctl.signal });
+    if (ctl.signal.aborted) return;
+    if (!res || !Array.isArray(res.branches) || !res.branches.length) throw new Error("empty");
+    VN.result = res;
+    if (!$("#vn-title").value.trim() && res.title) $("#vn-title").value = short(squash(res.title), 80);
+    // the refined map: title → branches → points
+    const nodes = [{ id: "R", label: short($("#vn-title").value.trim() || res.title || "Conversation", 48), parent: null }];
+    res.branches.slice(0, 8).forEach((b, i) => { nodes.push({ id: "b" + i, label: short(squash(b.title), 48), parent: "R" }); (b.points || []).slice(0, 6).forEach((p, k) => nodes.push({ id: `b${i}p${k}`, label: short(squash(p), 60), parent: "b" + i })); });
+    VN.seen = new Set(); VN.tree = { nodes }; vnDraw();
+    vnShowSum();
+    $("#vn-approve").disabled = !st.writer;
+    vnStatus(st.writer ? "Check the summary, refine again if you like, then Approve to add it to the map." : "You can view this, but adding it to the map needs Editor access.", !st.writer);
+  } catch (e) { if (!ctl.signal.aborted) { const m = aiErr(e); vnStatus(m || "Couldn't summarise that. Try again.", true); } }
+  finally { if (VN.ctl === ctl) VN.ctl = null; $("#vn-refine").disabled = !st.ai; }
+};
+function vnPlace() {
+  const r = VN.result || {};
+  const fixed = new Set(["Calendar"]);
+  const c = cats().find((x) => x.name.toLowerCase() === String(r.category || "").toLowerCase() && !fixed.has(groupOf(x))) || cats().find((x) => x.id === "ideas") || null;
+  let parent = r.parent ? st.notes.get(String(r.parent)) : null;
+  if (parent && (!c || parent.cat !== c.id)) parent = null;
+  const related = [...new Set((r.related || []).map(String))].filter((id) => st.notes.has(id)).slice(0, 6);
+  return { c, parent, related };
+}
+function vnShowSum() {
+  const r = VN.result; if (!r) return;
+  const { c, parent, related } = vnPlace();
+  const box = $("#vn-sum");
+  box.replaceChildren(...[
+    h("h3", {}, "Summary"), h("p", {}, squash(r.summary || "")),
+    (r.actions || []).length ? [h("h3", {}, "Action items"), h("ul", {}, r.actions.slice(0, 10).map((a) => h("li", {}, squash(a))))] : null,
+    h("h3", {}, "Will be added under"),
+    h("p", {}, c ? `${groupLabel(groupOf(c))} › ${c.name}${parent ? " › " + parent.title : ""}` : "Unsorted", ` · ${r.branches.length} sub-topics`),
+    related.length ? [h("h3", {}, "Linked to"), h("div", { class: "chips" }, related.map((id) => h("span", { class: "chip" }, short(st.notes.get(id).title, 40))))] : null].flat().filter(Boolean));
+  box.hidden = false; $(".vn-body").classList.add("has-sum");
+}
+$("#vn-approve").onclick = () => {
+  const r = VN.result; if (!r || !st.writer) return;
+  const { c, parent, related } = vnPlace();
+  const now = Date.now(), day = todayIso(), mins = Math.max(1, Math.round(VN.acc / 60000));
+  const taken = new Set([...st.notes.values()].map((n) => squash(n.title).toLowerCase()));
+  const uniq = (t) => { let x = t, i = 2; while (taken.has(x.toLowerCase())) x = `${t} (${i++})`; taken.add(x.toLowerCase()); return x; };
+  const title = uniq("Voice note: " + short(squash($("#vn-title").value.trim() || r.title || "Conversation"), 70));
+  const branches = r.branches.slice(0, 8).map((b) => ({ title: uniq(short(squash(b.title), 70)), points: (b.points || []).slice(0, 8).map(squash).filter(Boolean) }));
+  const transcript = $("#vn-text").value.trim();
+  const body = (parent ? `Part of [[${parent.title}]]\n\n` : "") +
+    `Voice note · ${day}${VN.acc ? ` · about ${mins} min` : ""}.\n\n${squash(r.summary || "")}\n\n` +
+    ((r.actions || []).length ? `## Action items\n${r.actions.slice(0, 12).map((a) => "- " + squash(a)).join("\n")}\n\n` : "") +
+    `## Sub-topics\n${branches.map((b) => `- [[${b.title}]]`).join("\n")}\n\n## Transcript\n${transcript.slice(0, 40000)}${transcript.length > 40000 ? "\n…" : ""}`;
+  const hubId = newId();
+  histLabel(`Add voice note "${short(title, 28)}"`);
+  putNote({ id: hubId, author: st.me, title, body, cat: c ? c.id : "", links: related, created: now, date: now, source: "Voice note", hub: true });
+  for (const b of branches) putNote({ id: newId(), author: st.me, title: b.title, body: `Part of [[${title}]]\n\n` + b.points.map((p) => "- " + p).join("\n"), cat: c ? c.id : "", links: [], created: now, date: now, source: "Voice note" });
+  toast(`Added "${short(title, 50)}" with ${branches.length} sub-topics`);
+  vnStatus("Added to the map. Press New to start another.");
+  $("#vn-approve").disabled = true;
+  st.selected = hubId;
+  setTimeout(() => { applyHighlight(); if (st.view === "graph") { showPreview(hubId); panTo(hubId); } pulse(hubId); }, 400);
+};
+$("#vn-copy").onclick = async () => { try { await navigator.clipboard.writeText($("#vn-text").value); toast("Transcript copied"); } catch { $("#vn-text").select(); toast("Select-all is on: copy it with Ctrl/⌘ + C"); } };
+$("#vn-new").onclick = () => {
+  if (VN.on) vnStop();
+  if (VN.ctl) VN.ctl.abort();
+  Object.assign(VN, { acc: 0, tree: null, seen: new Set(), lastWords: 0, lastAt: 0, result: null });
+  $("#vn-text").value = ""; $("#vn-title").value = ""; $("#vn-title").placeholder = "Untitled conversation"; $("#vn-ask").value = "";
+  $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum"); $("#vn-approve").disabled = true;
+  vnTick(); vnDraw(); vnStatus(SpeechRec ? "Press Record and talk." : "");
+  $("#vn-rec").querySelector("span").textContent = "Record";
+};
+// drag the window by its title bar
+(() => {
+  const bar = $("#vn-bar"), win = $("#vn");
+  bar.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("input,button") || innerWidth < 760) return;
+    const r = win.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+    bar.setPointerCapture(e.pointerId);
+    const mv = (ev) => { win.style.left = clamp(ev.clientX - dx, 0, innerWidth - 120) + "px"; win.style.top = clamp(ev.clientY - dy, 0, innerHeight - 60) + "px"; win.style.right = "auto"; win.style.bottom = "auto"; };
+    const up = () => { bar.removeEventListener("pointermove", mv); bar.removeEventListener("pointerup", up); };
+    bar.addEventListener("pointermove", mv); bar.addEventListener("pointerup", up);
+  });
+})();
 
 /* ---------- boot ---------- */
 function watchAuthorNotes(uid) {
@@ -5577,9 +5944,11 @@ async function boot() {
       refresh();
     }, onDbErr);
     db.doc("settings/categories").onSnapshot((s) => { st.meta = s.exists ? s.data() : null; refresh(); }, onDbErr);
+    db.doc("settings/lock").onSnapshot((s) => applyLockDoc(s.exists ? s.data() : null), () => { LOCK.ready = true; setLocked(true, "Couldn't check the lock. Reload to try again."); });
     setTimeout(() => { if (!st.loaded) { st.loaded = true; refresh(); } }, 6000);
   } else {
     st.loaded = true;
+    applyLockDoc(null);
     refresh();
   }
 }

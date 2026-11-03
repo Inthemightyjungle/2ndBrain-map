@@ -642,3 +642,71 @@ textarea{resize:vertical;min-height:120px;line-height:1.5}
 .tag-sum { margin: 4px 0 8px; }
 .tag-sum .meta { margin: 0 0 4px; }
 @media (max-width:1680px){ #b-recal .t{display:none} #b-recal{padding:0 11px} }
+
+/* ---------- lock screen ---------- */
+.lock,.lockset{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:radial-gradient(1200px 700px at 50% 30%,rgba(56,225,255,.08),transparent 60%),var(--bg)}
+.lockset{background:rgba(2,5,10,.72);backdrop-filter:blur(6px)}
+.lock[hidden],.lockset[hidden]{display:none}
+.lock-card{width:min(360px,100%);display:grid;gap:12px;justify-items:center;text-align:center;padding:28px 24px;border:1px solid var(--line-strong);border-radius:14px;background:var(--surface-solid);box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.lock-ic svg{width:34px;height:34px;color:var(--accent)}
+.lock-card h2{margin:0;font-family:var(--font-display);font-weight:600;font-size:19px;letter-spacing:.06em;text-transform:uppercase}
+.lock-sub{margin:0;color:var(--muted);font-size:13.5px}
+.lock-fields{display:grid;gap:10px;width:100%}
+.lock-fields input[type=password]{width:100%;height:40px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg-2);padding:0 12px;font-size:15px}
+.lock-rem{display:flex;gap:8px;align-items:center;justify-content:center;color:var(--muted);font-size:12.5px}
+.lock-fields .btn.primary{justify-content:center;height:40px}
+.lock-err{margin:0;min-height:1.2em;color:var(--danger);font-size:12.5px}
+.lock-row{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+.lock.pending .lock-fields{visibility:hidden}
+.lock.shake .lock-card{animation:lockshake .35s}
+@keyframes lockshake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+body.locked .app{visibility:hidden}
+
+/* ---------- voice notes window ---------- */
+.vn{position:fixed;right:20px;bottom:110px;z-index:60;width:min(620px,calc(100vw - 32px));height:min(640px,calc(100vh - 150px));min-width:320px;min-height:360px;display:flex;flex-direction:column;border:1px solid var(--line-strong);border-radius:14px;background:var(--surface-solid);box-shadow:0 24px 70px rgba(0,0,0,.55);resize:both;overflow:hidden}
+.vn[hidden]{display:none}
+.vn-bar{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 14px;border-bottom:1px solid var(--line);cursor:move;touch-action:none;user-select:none}
+.vn-dot{width:10px;height:10px;border-radius:50%;background:var(--faint);flex:none}
+.vn.rec .vn-dot{background:var(--danger);box-shadow:0 0 0 0 rgba(255,107,107,.6);animation:vnpulse 1.4s infinite}
+@keyframes vnpulse{70%{box-shadow:0 0 0 9px rgba(255,107,107,0)}100%{box-shadow:0 0 0 0 rgba(255,107,107,0)}}
+.vn-title{flex:1;min-width:0;background:transparent;border:0;font-family:var(--font-display);font-size:15px;font-weight:600;letter-spacing:.04em;padding:4px 0;cursor:text}
+.vn-time{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.vn-x{font-size:20px;line-height:1;width:30px;justify-content:center;padding:0}
+.vn-ctl{display:flex;align-items:center;gap:8px;padding:8px 14px}
+.vn-ctl svg{width:14px;height:14px}
+.vn.rec #vn-rec{background:var(--danger);border-color:var(--danger);box-shadow:none}
+.vn-status{font-size:12px;color:var(--muted);min-width:0;flex:1}
+.vn-status.warn{color:#ffd166}
+.vn-body{flex:1;min-height:0;display:grid;grid-template-rows:minmax(150px,1fr) auto;gap:8px;padding:0 14px 8px}
+.vn-body.has-sum{grid-template-rows:minmax(150px,1fr) auto auto}
+.vn-mapwrap{position:relative;min-height:0;overflow:auto;border:1px solid var(--line);border-radius:10px;background:radial-gradient(600px 300px at 30% 40%,rgba(56,225,255,.06),transparent 70%),var(--bg-2)}
+.vn-map{display:block;min-width:100%}
+.vn-map .ln{fill:none;stroke:rgba(110,200,255,.35);stroke-width:1.4}
+.vn-map .nd circle{fill:var(--accent);stroke:var(--bg-2);stroke-width:2}
+.vn-map .nd.root circle{fill:#ffd166}
+.vn-map .nd text{fill:var(--ink);font-size:12.5px;font-family:inherit;paint-order:stroke;stroke:var(--bg-2);stroke-width:3px}
+.vn-map .nd.root text{font-family:var(--font-display);font-size:14px;font-weight:600;letter-spacing:.03em}
+.vn-map .nd.pt text{fill:var(--muted);font-size:11.5px}
+.vn-map .new{animation:vnin .5s ease-out}
+@keyframes vnin{from{opacity:0}}
+.vn-empty{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:var(--faint);font-size:13px;pointer-events:none}
+.vn-notes{display:grid;gap:4px}
+.vn-notes textarea{width:100%;height:96px;resize:vertical;border:1px solid var(--line);border-radius:10px;background:var(--bg-2);padding:8px 10px;font-size:13px;line-height:1.45}
+.vn-interim{margin:0;min-height:1.1em;color:var(--faint);font-size:12px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vn-sum{max-height:34vh;overflow:auto;border:1px solid var(--accent-soft);border-radius:10px;padding:10px 12px;background:rgba(56,225,255,.04);font-size:13px;line-height:1.5}
+.vn-sum h3{margin:8px 0 4px;font-size:11px;font-family:var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.vn-sum h3:first-child{margin-top:0}
+.vn-sum p{margin:0}
+.vn-sum ul{margin:0;padding-left:18px}
+.vn-sum .chips{display:flex;flex-wrap:wrap;gap:4px}
+.vn-sum .chip{border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:11.5px;color:var(--muted)}
+.vn-foot{display:flex;gap:6px;align-items:center;padding:8px 14px 12px;border-top:1px solid var(--line);flex-wrap:wrap}
+.vn-foot input{flex:1 1 180px;min-width:0;height:30px;border:1px solid var(--line);border-radius:8px;background:var(--bg-2);padding:0 10px;font-size:12.5px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (max-width:1680px){ #b-voice .t{display:none} #b-voice{padding:0 11px} }
+@media (max-width:760px){ .vn{left:8px;right:8px;top:8px;bottom:8px;width:auto;height:auto;resize:none} }
+.lockmenu{position:absolute;right:46px;bottom:0;display:grid;gap:4px;padding:6px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-solid);box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:5;white-space:nowrap}
+.zoomctl{position:absolute}
+.zoomctl #z-lock{position:relative}
+.zoomctl .lockmenu button{width:auto;height:30px;display:inline-flex;place-items:unset;justify-content:flex-start;padding:0 11px;border:1px solid var(--line-strong);background:var(--surface-2);backdrop-filter:none}
+.zoomctl .lockmenu button{align-items:center}
