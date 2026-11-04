@@ -43,3 +43,9 @@ Needs Python 3 and Node. Edit `src/engine.js` for anything graph-related; `splic
 The page expects the artifact runtime (`window.claude.use("db")`, `"user"`, `"sample"`). Notes live under
 `authors/{uid}/notes`; categories under `settings/categories`. Outside that runtime the map loads empty.
 Keep exports of team data out of this repo (see `.gitignore`).
+
+## Firebase version
+
+`firebase/` is a standalone version of 2nd Brain with its own sign-in (Google, Microsoft or email link), a team
+allow-list enforced by Firestore and Storage security rules, and a server function that calls Claude with the API key
+kept in Secret Manager. See [firebase/SETUP.md](firebase/SETUP.md).

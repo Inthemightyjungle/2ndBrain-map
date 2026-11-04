@@ -1,0 +1,19 @@
+rules_version = '2';
+// Thumbnail sheets for the map. Team members can read them; only admins and the owner upload.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function access() { return firestore.get(/databases/(default)/documents/config/access).data; }
+    function member() { return signedIn() && request.auth.token.email.lower() in access().members; }
+    function admin() { return member() && access().members[request.auth.token.email.lower()].get('role', 'member') in ['owner', 'admin']; }
+
+    match /thumbs/{file} {
+      allow read: if member();
+      allow write: if admin() && request.resource.size < 8 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/json');
+    }
+    match /{all=**} {
+      allow read, write: if false;
+    }
+  }
+}

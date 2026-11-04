@@ -1,0 +1,23 @@
+<div id="gate" class="gate" role="dialog" aria-labelledby="gate-h">
+  <div class="g-card">
+    <h1 id="gate-h">2nd Brain<span> //</span></h1>
+    <div class="g-pane" id="g-wait"><p class="g-lead">Loading…</p></div>
+    <div class="g-pane" id="g-in" hidden>
+      <p class="g-lead">Sign in to open the team's map.</p>
+      <button class="g-btn" id="g-google" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.7z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.4 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9h-4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.4a7.2 7.2 0 0 1 0-4.7V6.6h-4a12 12 0 0 0 0 10.8l4-3z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>Continue with Google</button>
+      <button class="g-btn" id="g-ms" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#F25022" d="M1 1h10v10H1z"/><path fill="#7FBA00" d="M13 1h10v10H13z"/><path fill="#00A4EF" d="M1 13h10v10H1z"/><path fill="#FFB900" d="M13 13h10v10H13z"/></svg>Continue with Microsoft</button>
+      <div class="g-or"><span>or</span></div>
+      <form id="g-email-form" class="g-email">
+        <input id="g-email" type="email" placeholder="you@company.com" autocomplete="email" required aria-label="Email address">
+        <button class="g-btn g-small" type="submit">Email me a link</button>
+      </form>
+    </div>
+    <div class="g-pane" id="g-no" hidden>
+      <p class="g-lead" id="g-no-msg"></p>
+      <p class="g-who" id="g-who"></p>
+      <button class="g-btn" id="g-out" type="button">Use another account</button>
+    </div>
+    <p class="g-msg" id="gate-msg" role="status"></p>
+    <p class="g-fine">Only people on the team list can open this map. Your sign-in is checked on the server for every read and write.</p>
+  </div>
+</div>

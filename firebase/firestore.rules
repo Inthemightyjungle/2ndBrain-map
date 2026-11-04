@@ -1,0 +1,64 @@
+rules_version = '2';
+// 2nd Brain. Only people on the team list (config/access) can read anything; each member writes their own notes;
+// admins and the owner can edit everything and the shared settings; only the owner changes who is on the list.
+// config/access = { members: { "<email, lowercase>": { role: "owner"|"admin"|"member", id?: "<author id>", name?: "" } } }
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function email() { return request.auth.token.email.lower(); }
+    function access() { return get(/databases/$(database)/documents/config/access).data; }
+    function member() { return signedIn() && email() in access().members; }
+    function entry() { return access().members[email()]; }
+    function role() { return entry().get('role', 'member'); }
+    function myId() { return entry().get('id', request.auth.uid); }
+    function admin() { return member() && role() in ['owner', 'admin']; }
+    function owner() { return member() && role() == 'owner'; }
+    // keep documents a sane size and shape
+    function smallEnough() { return request.resource.data.size() <= 40; }
+
+    match /config/access {
+      allow read: if member();
+      // the owner edits the list; it must keep at least one owner and stay a members map
+      allow write: if owner()
+        && request.resource.data.keys().hasOnly(['members', 'updated'])
+        && request.resource.data.members is map
+        && request.resource.data.members.size() <= 200;
+    }
+    match /config/{other} {
+      allow read: if member();
+      allow write: if owner();
+    }
+
+    match /authors/{authorId} {
+      allow read: if member();
+      allow create, update: if member() && (myId() == authorId || admin()) && smallEnough();
+      allow delete: if admin();
+
+      match /notes/{noteId} {
+        allow read: if member();
+        allow create, update: if member() && (myId() == authorId || admin())
+          && request.resource.data.title is string && request.resource.data.title.size() <= 200
+          && request.resource.data.body is string && request.resource.data.body.size() <= 200000
+          && smallEnough();
+        allow delete: if member() && (myId() == authorId || admin());
+      }
+    }
+
+    match /settings/{docId} {
+      allow read: if member();
+      allow write: if admin();
+    }
+
+    // AI usage counters are kept by the server only
+    match /usage/{rest=**} {
+      allow read, write: if false;
+    }
+
+    // anything else is closed
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}
