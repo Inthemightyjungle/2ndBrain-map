@@ -729,6 +729,22 @@ body.locked .app{visibility:hidden}
 .zoomctl #z-lock{position:relative}
 .zoomctl .lockmenu button{width:auto;height:30px;display:inline-flex;place-items:unset;justify-content:flex-start;padding:0 11px;border:1px solid var(--line-strong);background:var(--surface-2);backdrop-filter:none}
 .zoomctl .lockmenu button{align-items:center}
+
+/* voice notes: once summarised, the mind map and the topic breakdown take the room; the transcript folds away */
+.vn-body.has-sum{grid-template-rows:minmax(160px,1fr) auto}
+.vn-body.has-sum .vn-notes{display:none}
+.vn-body.has-sum.show-tx{grid-template-rows:minmax(140px,1fr) auto auto}
+.vn-body.has-sum.show-tx .vn-notes{display:grid}
+.vn-sum{max-height:42vh}
+.vn-sum .vn-topics{display:grid;gap:8px;margin-top:2px}
+.vn-sum .vn-topic{border-left:2px solid var(--accent);padding:2px 0 2px 10px}
+.vn-sum .vn-topic h4{margin:0 0 2px;font-size:13.5px;font-weight:600;color:var(--ink)}
+.vn-sum .vn-topic ul{margin:0;padding-left:16px;color:var(--ink)}
+.vn-sum .vn-topic li{margin:1px 0}
+.vn-sum .vn-where{color:var(--muted)}
+.vn-tip{display:block;margin-top:2px;color:var(--ink)}
+.vn-tip kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line-strong);border-radius:4px;padding:0 4px}
+.vn-map .nd.act circle{fill:#ffd166}
 </style>
 
 <div class="app" id="app">
@@ -1002,10 +1018,11 @@ body.locked .app{visibility:hidden}
     <div class="vn-sum" id="vn-sum" hidden></div>
   </div>
   <footer class="vn-foot">
-    <input id="vn-ask" type="text" placeholder="Refine with an instruction (optional), e.g. group by project" aria-label="Refine instruction">
-    <button class="btn small" id="vn-refine" type="button">Summary &amp; refine</button>
-    <button class="btn small primary" id="vn-approve" type="button" disabled>Approve</button>
-    <button class="btn small primary" id="vn-send" type="button" hidden title="Package this session so the online 2nd Brain can summarise it and add it to the map">Send to 2nd Brain</button>
+    <input id="vn-ask" type="text" placeholder="Instructions for Claude (optional), e.g. split budget into its own topic" aria-label="Instructions for refining the notes">
+    <button class="btn small" id="vn-refine" type="button" title="Break the conversation into topics and a mind map">Summarise</button>
+    <button class="btn small primary" id="vn-approve" type="button" disabled title="Add these notes to the map as a new node with its topics">Submit to 2nd Brain</button>
+    <button class="btn small primary" id="vn-send" type="button" hidden title="This offline file can't write to the map: package the session for the online 2nd Brain">Send to online 2nd Brain</button>
+    <button class="btn small ghost" id="vn-tx" type="button" hidden title="Show or hide the transcript">Transcript</button>
     <button class="btn small ghost" id="vn-load" type="button" title="Load a session saved from the offline copy, or a transcript file">Load</button>
     <input id="vn-file" type="file" accept=".json,.txt,.md,application/json,text/plain" hidden>
     <button class="btn small ghost" id="vn-copy" type="button" title="Copy the transcript">Copy</button>
@@ -6829,12 +6846,28 @@ function vnModes() {
   const off = VN_OFF();
   $("#vn-refine").hidden = off; $("#vn-approve").hidden = off; $("#vn-send").hidden = !off;
   $("#vn-refine").disabled = !st.ai;
-  $("#vn-refine").title = "Tidy the map into clear branches and write a summary";
+  vnLabels();
+}
+// "Summarise" first; once there's a summary the same button applies your instructions ("Refine")
+function vnLabels() {
+  const b = $("#vn-refine");
+  b.textContent = VN.result ? "Refine" : "Summarise";
+  b.title = VN.result ? "Apply your instructions to the topics and mind map (or re-summarise with none)" : "Break the conversation into topics and a mind map";
+  $("#vn-tx").hidden = !VN.result;
+}
+$("#vn-tx").onclick = () => $(".vn-body").classList.toggle("show-tx");
+$("#vn-ask").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("#vn-refine").hidden && !$("#vn-refine").disabled) { e.preventDefault(); $("#vn-refine").click(); } });
+// where the microphone can't be used (inside Claude), speech still gets in through the device's own dictation
+function vnDictateTip() {
+  const ua = navigator.userAgent || "", mac = /Mac/.test(navigator.platform || ua) && !/iPhone|iPad/.test(ua);
+  const how = /iPhone|iPad|Android/.test(ua) ? "tap the microphone on your keyboard"
+    : mac ? "press the dictation key 🎤 (or Fn twice)" : /Windows/.test(ua) ? "press Win + H" : "use your system's dictation";
+  return `Tap in the notes box below and ${how} — what you say is typed in and the mind map grows as you talk.`;
 }
 function vnOpen() {
   $("#vn").hidden = false;
   vnModes();
-  if (!VN.on && !vnWords()) vnStatus(SpeechRec ? "Press Record and talk. The map grows as it listens." : "Live listening isn't supported in this browser. Type, dictate with your keyboard's mic, or paste a transcript.", !SpeechRec);
+  if (!VN.on && !vnWords()) vnStatus(SpeechRec ? "Press Record and talk. The map grows as it listens." : vnDictateTip(), !SpeechRec);
   vnDraw();
 }
 $("#b-voice").onclick = vnOpen;
@@ -6849,9 +6882,9 @@ function vnAppend(t) {
 }
 function vnStart() {
   if (VN.on) return;
-  if (!SpeechRec) { vnStatus("Live listening isn't supported in this browser. Tap in the notes box and use your keyboard's dictation (the mic key), or paste a transcript.", true); $("#vn-text").focus(); return; }
+  if (!SpeechRec) { vnStatus(vnDictateTip(), true); $("#vn-text").focus(); return; }
   let r;
-  try { r = new SpeechRec(); } catch { vnStatus("The microphone isn't available here. Use your keyboard's dictation in the notes box, or paste a transcript.", true); return; }
+  try { r = new SpeechRec(); } catch { vnStatus(vnDictateTip(), true); $("#vn-text").focus(); return; }
   r.continuous = true; r.interimResults = true; r.lang = navigator.language || "en-SG";
   r.onresult = (e) => {
     let interim = "";
@@ -6861,12 +6894,13 @@ function vnStart() {
   r.onerror = (e) => {
     if (["not-allowed", "service-not-allowed", "audio-capture"].includes(e.error)) {
       VN.blocked = true; vnStop();
-      vnStatus(e.error === "audio-capture" ? "No microphone found. Type, dictate with your keyboard, or paste a transcript instead." : "This page isn't allowed to use the microphone here. Tap in the notes box and use your keyboard's dictation (the mic key), or paste a transcript.", true);
+      vnStatus(e.error === "audio-capture" ? "No microphone found. Type or paste a transcript instead." : "The page can't use the microphone directly here. " + vnDictateTip(), true);
+      $("#vn-text").focus();
     } else if (e.error === "network") vnStatus("Speech recognition lost its connection. It will keep trying.", true);
   };
   r.onend = () => { if (VN.on && !VN.blocked) { try { r.start(); } catch {} } };   // browsers stop after a pause; keep listening
   VN.blocked = false;
-  if (VN.result) { VN.result = null; $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum"); $("#vn-approve").disabled = true; }
+  if (VN.result) { VN.result = null; $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum", "show-tx"); $("#vn-approve").disabled = true; vnLabels(); }
   try { r.start(); } catch { vnStatus("Couldn't start listening. Try again.", true); return; }
   VN.rec = r; VN.on = true; VN.t0 = Date.now();
   clearInterval(VN.timer); VN.timer = setInterval(vnTick, 500);
@@ -6880,12 +6914,12 @@ function vnStop() {
   VN.rec = null;
   $("#vn").classList.remove("rec"); $("#vn-rec").querySelector("span").textContent = vnWords() ? "Resume" : "Record"; $("#vn-stop").disabled = true;
   $("#vn-interim").textContent = "";
-  if (!VN.blocked) vnStatus(vnWords() ? (!VN_OFF() ? "Stopped. Press Summary & refine to tidy the map, then Approve to add it." : "Stopped. Press Send to 2nd Brain, then open the online map to summarise and approve it.") : "");
+  if (!VN.blocked) vnStatus(vnWords() ? (!VN_OFF() ? "Stopped. Press Summarise to break it into topics, refine with instructions, then Submit to 2nd Brain." : "Stopped. This offline file can't add to the map: press Send to online 2nd Brain.") : "");
   vnTree(true);
 }
 $("#vn-rec").onclick = () => (VN.on ? vnStop() : vnStart());
 $("#vn-stop").onclick = vnStop;
-$("#vn-text").addEventListener("input", () => { VN.result = null; $("#vn-approve").disabled = true; vnSoon(2500); });
+$("#vn-text").addEventListener("input", () => { if (VN.result) { VN.result = null; $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum", "show-tx"); vnLabels(); } $("#vn-approve").disabled = true; vnSoon(2500); });
 // rebuild the live map after enough new words, at most every ~10 s, one request at a time
 function vnSoon(delay = 4000) { clearTimeout(VN.again); VN.again = setTimeout(() => vnTree(false), delay); }
 async function vnTree(force) {
@@ -6960,58 +6994,86 @@ function vnDraw() {
   }
   for (const n of tree.nodes) {
     const p = pos.get(n.id); if (!p) continue;
-    const g = mk("g", { class: "nd" + (n === root ? " root" : p.d >= 2 ? " pt" : "") + (VN.seen.has(n.id) ? "" : " new"), transform: `translate(${p.x},${p.y})` });
+    const g = mk("g", { class: "nd" + (n === root ? " root" : p.d >= 2 ? " pt" : "") + (n.act ? " act" : "") + (VN.seen.has(n.id) ? "" : " new"), transform: `translate(${p.x},${p.y})` });
     g.append(mk("circle", { r: n === root ? 7 : p.d >= 2 ? 3.5 : 5 }));
     const t = mk("text", { x: 10, y: 4 }); t.textContent = n.label; g.append(t);
     svg.append(g);
   }
   VN.seen = new Set(tree.nodes.map((n) => n.id));
 }
-// Summary & refine: tidy the map into clear branches, write a summary, and pick where it belongs in the map
+// Summarise / Refine: break the conversation into topics (each with its points) and a mind map, write an overview,
+// and pick where it belongs in the 2nd Brain. With a summary already there, "Refine" applies the instructions to it.
 $("#vn-refine").onclick = async () => {
   const text = $("#vn-text").value.trim();
-  if (!st.ai) { toast("Summary needs Claude: open the map on claude.ai"); return; }
+  if (!st.ai) { toast("Summarising needs Claude: open 2nd Brain on claude.ai"); return; }
   if (!text) { vnStatus("Nothing to summarise yet.", true); return; }
   if (VN.on) vnStop();
   if (VN.ctl) VN.ctl.abort();
   const ctl = (VN.ctl = new AbortController());
+  const ask = $("#vn-ask").value.trim(), prev = VN.result, refining = !!(prev && ask);
   $("#vn-refine").disabled = true; $("#vn-approve").disabled = true;
-  vnStatus("Summarising and re-organising…");
+  vnStatus(refining ? "Refining the notes…" : "Breaking it into topics…");
   try {
-    const ask = $("#vn-ask").value.trim();
     const head = text.length > 16000 ? text.slice(0, 6000) + "\n…\n" + text.slice(-10000) : text;
-    const res = await st.ai.json(
-`You turn a recorded conversation into a tidy entry for a team's mind map of inspiration, research and projects.
+    const shape = `{"title":"","overview":"<2-4 sentences>","topics":[{"title":"<topic, max 6 words>","points":["<short point>"]}],"actions":["<action, with owner if named>"],"category":"<category name>","parent":"<topic id or null>","related":["<topic id>"]}`;
+    const prompt = refining ?
+`You are refining notes taken from a recorded conversation for a team's mind map. Apply the person's instruction to the current notes and return the full updated notes. Change only what the instruction asks; keep everything else as it is. Stay faithful to the transcript: never invent facts.
+
+INSTRUCTION
+${short(ask, 600)}
+
+CURRENT NOTES
+${JSON.stringify({ title: prev.title, overview: prev.overview || prev.summary, topics: prev.topics || prev.branches, actions: prev.actions, category: prev.category, parent: prev.parent, related: prev.related })}
+
+TRANSCRIPT (for reference)
+${head}
+
+CATEGORIES
+${cats().map((c) => `${c.name} (${groupLabel(groupOf(c))})`).join("; ")}
+
+Reply with only JSON: ${shape}`
+    :
+`You turn a recorded conversation into clear notes for a team's mind map of inspiration, research and projects. Break it down by topic: 2–8 topics, each one subject that was discussed, with 1–6 short points under it (what was said, decided, proposed or left open). Use the speakers' own specifics (names, numbers, dates, tools). Then list the action items (with owners when named). Stay faithful to the transcript: never invent facts.
 
 TRANSCRIPT
 ${head}
 
-CURRENT LIVE MAP (id | parent | label)
+LIVE MIND MAP SO FAR (id | parent | label)
 ${VN.tree ? VN.tree.nodes.map((n) => `${n.id} | ${n.parent || "-"} | ${n.label}`).join("\n") : "(none)"}
 ${ask ? `\nTHE PERSON ASKS: ${short(ask, 400)}\n` : ""}
-THE TEAM'S MAP (id | group › category › parent topic | topic title | summary)
+THE TEAM'S 2ND BRAIN (id | group › category › parent topic | topic title | summary)
 ${treeLines().slice(0, 320).join("\n")}
 
 CATEGORIES
 ${cats().map((c) => `${c.name} (${groupLabel(groupOf(c))})`).join("; ")}
 
-Write: a title (under 60 characters, specific); a 3–6 sentence summary; 2–7 branches, each a clear topic with 1–6 short points (decisions, ideas, facts, open questions); action items with owners when named; the single best category for this conversation and, if it clearly belongs under an existing topic, that topic's id as parent; and up to 6 ids of existing topics it relates to.
+Also give: a specific title (under 60 characters); a 2–4 sentence overview; the single best category for this conversation and, if it clearly belongs under an existing topic in the 2nd Brain, that topic's id as parent; and up to 6 ids of existing topics it relates to.
 
-Reply with only JSON: {"title":"","summary":"","branches":[{"title":"","points":[""]}],"actions":[""],"category":"<category name>","parent":"<topic id or null>","related":["<topic id>"]}`, { modelTier: "default", signal: ctl.signal });
+Reply with only JSON: ${shape}`;
+    const res = await st.ai.json(prompt, { modelTier: "default", signal: ctl.signal });
     if (ctl.signal.aborted) return;
-    if (!res || !Array.isArray(res.branches) || !res.branches.length) throw new Error("empty");
-    VN.result = res;
-    if (!$("#vn-title").value.trim() && res.title) $("#vn-title").value = short(squash(res.title), 80);
-    // the refined map: title → branches → points
-    const nodes = [{ id: "R", label: short($("#vn-title").value.trim() || res.title || "Conversation", 48), parent: null }];
-    res.branches.slice(0, 8).forEach((b, i) => { nodes.push({ id: "b" + i, label: short(squash(b.title), 48), parent: "R" }); (b.points || []).slice(0, 6).forEach((p, k) => nodes.push({ id: `b${i}p${k}`, label: short(squash(p), 60), parent: "b" + i })); });
-    VN.seen = new Set(); VN.tree = { nodes }; vnDraw();
+    const topics = res && Array.isArray(res.topics) ? res.topics : res && Array.isArray(res.branches) ? res.branches : [];
+    if (!topics.length) throw new Error("empty");
+    VN.result = { ...res, topics, branches: topics, summary: res.overview || res.summary || "" };
+    if (res.title && (!$("#vn-title").value.trim() || !refining)) $("#vn-title").value = short(squash(res.title), 80);
+    vnResultTree();
     vnShowSum();
+    if (refining) $("#vn-ask").value = "";
     $("#vn-approve").disabled = !st.writer;
-    vnStatus(st.writer ? "Check the summary, refine again if you like, then Approve to add it to the map." : "You can view this, but adding it to the map needs Editor access.", !st.writer);
+    vnLabels();
+    vnStatus(st.writer ? "Check the topics. Type an instruction and press Refine to change them, or Submit to 2nd Brain." : "You can view this, but adding it to the map needs Editor access.", !st.writer);
   } catch (e) { if (!ctl.signal.aborted) { const m = aiErr(e); vnStatus(m || "Couldn't summarise that. Try again.", true); } }
   finally { if (VN.ctl === ctl) VN.ctl = null; $("#vn-refine").disabled = !st.ai; }
 };
+// the mind map of the notes: title → topics → points, plus an action-items branch
+function vnResultTree() {
+  const r = VN.result; if (!r) return;
+  const nodes = [{ id: "R", label: short($("#vn-title").value.trim() || r.title || "Conversation", 48), parent: null }];
+  r.topics.slice(0, 8).forEach((b, i) => { nodes.push({ id: "b" + i, label: short(squash(b.title), 48), parent: "R" }); (b.points || []).slice(0, 6).forEach((p, k) => nodes.push({ id: `b${i}p${k}`, label: short(squash(p), 60), parent: "b" + i })); });
+  const acts = (r.actions || []).slice(0, 6);
+  if (acts.length) { nodes.push({ id: "A", label: "Action items", parent: "R", act: true }); acts.forEach((a, k) => nodes.push({ id: "A" + k, label: short(squash(a), 60), parent: "A", act: true })); }
+  VN.seen = new Set(); VN.tree = { nodes }; vnDraw();
+}
 function vnPlace() {
   const r = VN.result || {};
   const fixed = new Set(["Calendar"]);
@@ -7026,13 +7088,16 @@ function vnShowSum() {
   const { c, parent, related } = vnPlace();
   const box = $("#vn-sum");
   box.replaceChildren(...[
-    h("h3", {}, "Summary"), h("p", {}, squash(r.summary || "")),
+    h("h3", {}, "Overview"), h("p", {}, squash(r.summary || "")),
+    h("h3", {}, `Topics (${r.topics.length})`),
+    h("div", { class: "vn-topics" }, r.topics.slice(0, 8).map((t) => h("div", { class: "vn-topic" }, h("h4", {}, squash(t.title)), (t.points || []).length ? h("ul", {}, t.points.slice(0, 8).map((p) => h("li", {}, squash(p)))) : null))),
     (r.actions || []).length ? [h("h3", {}, "Action items"), h("ul", {}, r.actions.slice(0, 10).map((a) => h("li", {}, squash(a))))] : null,
-    h("h3", {}, "Will be added under"),
-    h("p", {}, c ? `${groupLabel(groupOf(c))} › ${c.name}${parent ? " › " + parent.title : ""}` : "Unsorted", ` · ${r.branches.length} sub-topics`),
+    h("h3", {}, "Goes into 2nd Brain under"),
+    h("p", { class: "vn-where" }, c ? `${groupLabel(groupOf(c))} › ${c.name}${parent ? " › " + parent.title : ""}` : "Unsorted", ` · as 1 node with ${r.topics.length} topic${r.topics.length === 1 ? "" : "s"}`),
     related.length ? [h("h3", {}, "Linked to"), h("div", { class: "chips" }, related.map((id) => h("span", { class: "chip" }, short(st.notes.get(id).title, 40))))] : null].flat().filter(Boolean));
   box.hidden = false; $(".vn-body").classList.add("has-sum");
 }
+// Submit to 2nd Brain: one node for the conversation (overview, action items, transcript) with a sub-node per topic
 $("#vn-approve").onclick = () => {
   const r = VN.result; if (!r || !st.writer) return;
   const { c, parent, related } = vnPlace();
@@ -7040,21 +7105,24 @@ $("#vn-approve").onclick = () => {
   const taken = new Set([...st.notes.values()].map((n) => squash(n.title).toLowerCase()));
   const uniq = (t) => { let x = t, i = 2; while (taken.has(x.toLowerCase())) x = `${t} (${i++})`; taken.add(x.toLowerCase()); return x; };
   const title = uniq("Voice note: " + short(squash($("#vn-title").value.trim() || r.title || "Conversation"), 70));
-  const branches = r.branches.slice(0, 8).map((b) => ({ title: uniq(short(squash(b.title), 70)), points: (b.points || []).slice(0, 8).map(squash).filter(Boolean) }));
+  const topics = r.topics.slice(0, 8).map((b) => ({ title: uniq(short(squash(b.title), 70)), points: (b.points || []).slice(0, 8).map(squash).filter(Boolean) }));
   const transcript = $("#vn-text").value.trim();
   const body = (parent ? `Part of [[${parent.title}]]\n\n` : "") +
-    `Voice note · ${day}${VN.acc ? ` · about ${mins} min` : ""}.\n\n${squash(r.summary || "")}\n\n` +
+    `${squash(r.summary || "") || "Notes from a conversation."}\n\nVoice note · ${day}${VN.acc ? ` · about ${mins} min` : ""}.\n\n` +
     ((r.actions || []).length ? `## Action items\n${r.actions.slice(0, 12).map((a) => "- " + squash(a)).join("\n")}\n\n` : "") +
-    `## Sub-topics\n${branches.map((b) => `- [[${b.title}]]`).join("\n")}\n\n## Transcript\n${transcript.slice(0, 40000)}${transcript.length > 40000 ? "\n…" : ""}`;
+    `## Sub-topics\n${topics.map((b) => `- [[${b.title}]]`).join("\n")}\n\n## Transcript\n${transcript.slice(0, 40000)}${transcript.length > 40000 ? "\n…" : ""}`;
   const hubId = newId();
   histLabel(`Add voice note "${short(title, 28)}"`);
   putNote({ id: hubId, author: st.me, title, body, cat: c ? c.id : "", links: related, created: now, date: now, source: "Voice note", hub: true });
-  for (const b of branches) putNote({ id: newId(), author: st.me, title: b.title, body: `Part of [[${title}]]\n\n` + b.points.map((p) => "- " + p).join("\n"), cat: c ? c.id : "", links: [], created: now, date: now, source: "Voice note" });
-  toast(`Added "${short(title, 50)}" with ${branches.length} sub-topics`);
-  vnStatus("Added to the map. Press New to start another.");
+  for (const b of topics) putNote({ id: newId(), author: st.me, title: b.title, body: `Part of [[${title}]]\n\n` + b.points.map((p) => "- " + p).join("\n"), cat: c ? c.id : "", links: [], created: now, date: now, source: "Voice note" });
+  toast(`Added "${short(title, 50)}" to 2nd Brain with ${topics.length} topics`);
+  vnStatus("Added to 2nd Brain. Press New to start another.");
   $("#vn-approve").disabled = true;
+  // show it on the neural map: tuck the window away and fly to the new node
+  $("#vn").hidden = true;
+  if (st.view !== "graph") setView("graph");
   st.selected = hubId;
-  setTimeout(() => { applyHighlight(); if (st.view === "graph") { showPreview(hubId); panTo(hubId); } pulse(hubId); }, 400);
+  setTimeout(() => { applyHighlight(); showPreview(hubId); panTo(hubId); pulse(hubId); }, 450);
 };
 // ---- hand-off between the offline copy and the online map ----
 const VN_TAG = "2nd-brain-voice-note";
@@ -7070,10 +7138,10 @@ function vnUnpack(raw) {
   Object.assign(VN, { acc: Math.max(0, +p.acc || 0), result: null, seen: new Set(), lastWords: 0, lastAt: 0 });
   $("#vn-text").value = p.text.slice(0, 200000);
   $("#vn-title").value = short(squash(p.title || ""), 80);
-  $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum"); $("#vn-approve").disabled = true;
+  $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum", "show-tx"); $("#vn-approve").disabled = true; vnLabels();
   VN.tree = p.tree && Array.isArray(p.tree.nodes) ? vnClean(p.tree.nodes) : null;
   vnTick(); vnDraw();
-  if (!VN_OFF()) { vnStatus(`Loaded the session from ${p.day || "the offline copy"}. Press Summary & refine, then Approve to add it.`); vnTree(true); }
+  if (!VN_OFF()) { vnStatus(`Loaded the session from ${p.day || "the offline copy"}. Press Summarise, refine with instructions, then Submit to 2nd Brain.`); vnTree(true); }
   else vnStatus("Loaded. Open the online 2nd Brain to summarise and add it.");
   return true;
 }
@@ -7091,7 +7159,7 @@ $("#vn-send").onclick = async () => {
     a.download = `voice-note-${todayIso()}-${String($("#vn-title").value || "conversation").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30)}.json`;
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); saved = true;
   } catch {}
-  vnStatus(`${copied ? "Copied" : saved ? "Saved" : "Ready"}. Now open 2nd Brain on claude.ai › Voice notes, and ${copied ? "paste into the notes box (Ctrl/⌘ + V)" : "press Load and pick the saved file"}. Then Summary & refine and Approve.`);
+  vnStatus(`${copied ? "Copied" : saved ? "Saved" : "Ready"}. This offline file can't write to the map, so open 2nd Brain on claude.ai › Voice notes and ${copied ? "paste into the notes box (Ctrl/⌘ + V)" : "press Load and pick the saved file"}. There you can summarise, refine and Submit.`);
   toast(copied ? "Session copied. Paste it into Voice notes on the online map." : saved ? "Session saved as a file. Load it into Voice notes on the online map." : "Couldn't copy or save. Use Copy for the transcript instead.", copied || saved ? undefined : "err");
 };
 $("#vn-text").addEventListener("paste", (e) => {
@@ -7111,7 +7179,7 @@ $("#vn-file").onchange = async (e) => {
   $("#vn-text").value = t.slice(0, 200000).trim();
   if (!$("#vn-title").value.trim()) $("#vn-title").value = short(f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " "), 80);
   $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum"); $("#vn-approve").disabled = true;
-  vnStatus(VN_OFF() ? "Loaded the transcript." : "Loaded the transcript. Press Summary & refine, then Approve.");
+  vnStatus(VN_OFF() ? "Loaded the transcript." : "Loaded the transcript. Press Summarise, refine with instructions, then Submit to 2nd Brain.");
   vnTree(true);
 };
 $("#vn-copy").onclick = async () => { try { await navigator.clipboard.writeText($("#vn-text").value); toast("Transcript copied"); } catch { $("#vn-text").select(); toast("Select-all is on: copy it with Ctrl/⌘ + C"); } };
@@ -7120,8 +7188,8 @@ $("#vn-new").onclick = () => {
   if (VN.ctl) VN.ctl.abort();
   Object.assign(VN, { acc: 0, tree: null, seen: new Set(), lastWords: 0, lastAt: 0, result: null });
   $("#vn-text").value = ""; $("#vn-title").value = ""; $("#vn-title").placeholder = "Untitled conversation"; $("#vn-ask").value = "";
-  $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum"); $("#vn-approve").disabled = true;
-  vnTick(); vnDraw(); vnStatus(SpeechRec ? "Press Record and talk." : "");
+  $("#vn-sum").hidden = true; $(".vn-body").classList.remove("has-sum", "show-tx"); $("#vn-approve").disabled = true;
+  vnTick(); vnDraw(); vnLabels(); vnStatus(SpeechRec ? "Press Record and talk." : vnDictateTip());
   $("#vn-rec").querySelector("span").textContent = "Record";
 };
 // drag the window by its title bar
