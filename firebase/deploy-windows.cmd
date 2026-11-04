@@ -40,7 +40,7 @@ echo.
 
 echo  [2/5] Signing in. If a browser opens, sign in with the Google account that
 echo        owns your Firebase project and press Allow.
-call firebase login --no-localhost 2>nul || call firebase login
+call firebase login
 echo.
 
 if exist ".firebaserc" (
